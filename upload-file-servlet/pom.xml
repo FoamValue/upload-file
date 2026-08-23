@@ -18,7 +18,7 @@
 
     <artifactId>upload-file-servlet</artifactId>
     <name>upload-file-servlet</name>
-    <description>Servlet 3.0+ 接入层：分片上传 Servlet 与断点续传下载 Servlet</description>
+    <description>Servlet 3.0+ integration: chunk-upload servlet and resumable-download servlet</description>
 
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>

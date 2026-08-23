@@ -14,7 +14,8 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 基于内存的元数据存储。重启后丢失，适合单机、测试或不需要持久化的场景。
+ * In-memory metadata store. Data is lost on restart; suitable for single-node, tests,
+ * or scenarios that do not require persistence.
  */
 public class MemoryTaskStore implements TaskStore {
 

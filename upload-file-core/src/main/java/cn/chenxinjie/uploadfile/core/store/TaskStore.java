@@ -12,10 +12,11 @@ import java.util.Collection;
 import java.util.Optional;
 
 /**
- * 上传任务元数据存储 SPI。
+ * SPI for storing upload-task metadata.
  *
- * <p>内置实现：{@link MemoryTaskStore}（内存）、{@link FileTaskStore}（本地文件 + JSON）。</p>
- * <p>可通过实现本接口接入 Redis、数据库等其它存储。</p>
+ * <p>Built-in implementations: {@link MemoryTaskStore} (in-memory),
+ * {@link FileTaskStore} (local files + JSON).</p>
+ * <p>Implement this interface to back the store with Redis, a database, or other storage.</p>
  */
 public interface TaskStore {
 

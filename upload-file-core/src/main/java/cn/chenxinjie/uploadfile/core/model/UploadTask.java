@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * 一次上传任务的元数据，持久化到 {@link cn.chenxinjie.uploadfile.core.store.TaskStore}。
+ * Metadata of an upload task, persisted in {@link cn.chenxinjie.uploadfile.core.store.TaskStore}.
  */
 public class UploadTask {
 
@@ -20,7 +20,7 @@ public class UploadTask {
     private long chunkSize;
     private int chunkTotal;
 
-    /** 已上传完成的分片序号集合。 */
+    /** Indices of the chunks that have been uploaded. */
     private Set<Integer> uploadedChunks = new TreeSet<>();
 
     private boolean merged;

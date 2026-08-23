@@ -7,7 +7,7 @@
 package cn.chenxinjie.uploadfile.core.util;
 
 /**
- * 字符串工具。
+ * String utilities.
  */
 public final class Strings {
 
@@ -23,25 +23,25 @@ public final class Strings {
     }
 
     /**
-     * 校验 identifier，防止路径穿越等安全风险。
+     * Validates an identifier, preventing path traversal and other security risks.
      */
     public static String requireSafeIdentifier(String identifier) {
         if (isBlank(identifier)) {
-            throw new IllegalArgumentException("identifier 不能为空");
+            throw new IllegalArgumentException("identifier must not be blank");
         }
         checkNoSeparators(identifier, "identifier");
         return identifier;
     }
 
     /**
-     * 校验用于拼接文件路径的 fileName，防止路径穿越。
+     * Validates a {@code fileName} that is used to build file paths, preventing path traversal.
      */
     public static String requireSafeFileName(String fileName) {
         if (isBlank(fileName)) {
-            throw new IllegalArgumentException("fileName 不能为空");
+            throw new IllegalArgumentException("fileName must not be blank");
         }
         if (fileName.indexOf('\0') >= 0) {
-            throw new IllegalArgumentException("非法的 fileName: " + fileName);
+            throw new IllegalArgumentException("Illegal fileName: " + fileName);
         }
         checkNoSeparators(fileName, "fileName");
         return fileName;
@@ -50,7 +50,7 @@ public final class Strings {
     private static void checkNoSeparators(String value, String field) {
         if (value.indexOf('/') >= 0 || value.indexOf('\\') >= 0
                 || ".".equals(value) || "..".equals(value)) {
-            throw new IllegalArgumentException("非法的 " + field + ": " + value);
+            throw new IllegalArgumentException("Illegal " + field + ": " + value);
         }
     }
 }

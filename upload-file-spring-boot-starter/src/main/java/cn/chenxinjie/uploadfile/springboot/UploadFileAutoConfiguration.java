@@ -28,9 +28,10 @@ import java.io.File;
 import java.nio.file.Paths;
 
 /**
- * 自动装配核心服务并注册上传/下载 Servlet。
+ * Auto-wires the core services and registers the upload/download servlets.
  *
- * <p>所有组件均可通过自定义 Bean 覆盖（{@code @ConditionalOnMissingBean}）。</p>
+ * <p>Every component can be overridden by defining a bean of the same type
+ * ({@code @ConditionalOnMissingBean}).</p>
  */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)

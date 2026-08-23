@@ -25,13 +25,13 @@ import java.net.URLEncoder;
 import java.util.Optional;
 
 /**
- * 断点续传下载 Servlet，支持 HTTP Range 请求。
+ * Resumable-download servlet supporting HTTP Range requests.
  *
- * <p>接口约定：</p>
+ * <p>Endpoint contract:</p>
  * <ul>
- *   <li>{@code GET /download?identifier=xxx}：下载完整文件（200）</li>
- *   <li>{@code GET /download?identifier=xxx}，携带 {@code Range: bytes=start-end}：区间下载（206）</li>
- *   <li>不可满足的 Range 返回 416，文件不存在返回 404</li>
+ *   <li>{@code GET /download?identifier=xxx}: download the full file (200)</li>
+ *   <li>{@code GET /download?identifier=xxx} with {@code Range: bytes=start-end}: range download (206)</li>
+ *   <li>An unsatisfiable Range returns 416; a missing file returns 404</li>
  * </ul>
  */
 @WebServlet(name = "downloadFileServlet", urlPatterns = "/download", loadOnStartup = 1)
@@ -60,12 +60,12 @@ public class DownloadServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = req.getParameter("identifier");
         if (identifier == null || identifier.trim().isEmpty()) {
-            resp.sendError(400, "缺少 identifier");
+            resp.sendError(400, "Missing identifier");
             return;
         }
         Optional<File> fileOpt = downloadService.resolveFile(identifier);
         if (!fileOpt.isPresent()) {
-            resp.sendError(404, "文件不存在: " + identifier);
+            resp.sendError(404, "File not found: " + identifier);
             return;
         }
         File file = fileOpt.get();
@@ -99,8 +99,8 @@ public class DownloadServlet extends HttpServlet {
     }
 
     /**
-     * 小于 2GB 时使用 Servlet 3.0 的 {@code setContentLength}；更大文件回退到 Servlet 3.1 的
-     * {@code setContentLengthLong}，因此超过 2GB 的文件需要 Servlet 3.1+ 容器。
+     * Uses Servlet 3.0's {@code setContentLength} for files below 2 GB, falling back to Servlet 3.1's
+     * {@code setContentLengthLong} for larger files; therefore files above 2 GB require a Servlet 3.1+ container.
      */
     private static void setContentLength(HttpServletResponse resp, long length) {
         if (length <= Integer.MAX_VALUE) {

@@ -12,38 +12,39 @@ import java.io.InputStream;
 import java.util.List;
 
 /**
- * 分片文件物理存储 SPI。
+ * SPI for the physical storage of chunk files.
  *
- * <p>内置实现：{@link LocalFileChunkStorage}（本地文件系统）。</p>
- * <p>可通过实现本接口将分片接入 OSS、HDFS 等对象存储。</p>
+ * <p>Built-in implementation: {@link LocalFileChunkStorage} (local file system).</p>
+ * <p>Implement this interface to back chunks with object storage such as OSS or HDFS.</p>
  */
 public interface ChunkStorage {
 
     /**
-     * 保存一个分片。
+     * Stores a chunk.
      *
-     * @param identifier 文件唯一标识
-     * @param chunkIndex 分片序号（从 0 开始）
-     * @param in         分片内容输入流，本方法消费完整个流
+     * @param identifier unique file identifier
+     * @param chunkIndex chunk index (starts at 0)
+     * @param in         input stream of the chunk content; the whole stream is consumed by this method
      */
     void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException;
 
     boolean chunkExists(String identifier, int chunkIndex);
 
     /**
-     * 返回分片文件；分片不存在时返回一个不存在路径的 {@link File}，由调用方判断。
+     * Returns the chunk file; when the chunk does not exist, a {@link File} pointing to a
+     * non-existent path is returned and the caller must check it.
      */
     File getChunkFile(String identifier, int chunkIndex);
 
     /**
-     * 返回已上传的分片序号（升序）。
+     * Returns the uploaded chunk indices (ascending).
      */
     List<Integer> listChunks(String identifier);
 
     void deleteChunk(String identifier, int chunkIndex);
 
     /**
-     * 删除该标识下的所有分片。
+     * Deletes all chunks of the given identifier.
      */
     void deleteChunks(String identifier);
 }

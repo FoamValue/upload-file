@@ -27,18 +27,18 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 
 /**
- * 断点续传上传核心服务。
+ * Core resumable-upload service.
  *
- * <p>职责：分片保存、进度记录、分片校验、分片合并与清理。</p>
+ * <p>Responsibilities: chunk persistence, progress tracking, chunk verification, merge and cleanup.</p>
  *
- * <p>同一 identifier 的分片操作用按标识分片的锁（striped lock）串行化，
- * 保证并发上传时任务创建与进度记录的一致性。</p>
+ * <p>Chunk operations of the same identifier are serialized by a per-identifier striped lock,
+ * keeping task creation and progress tracking consistent under concurrent uploads.</p>
  */
 public class ResumableUploadService {
 
     public static final int DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 
-    /** 锁桶数量，固定大小避免无界增长。 */
+    /** Number of lock buckets; fixed size to avoid unbounded growth. */
     private static final int LOCK_COUNT = 64;
 
     private final TaskStore taskStore;
@@ -66,12 +66,13 @@ public class ResumableUploadService {
     }
 
     /**
-     * 上传一个分片。
+     * Uploads a chunk.
      *
-     * <p>分片已上传过时会直接跳过（幂等），可用于断点续传。</p>
+     * <p>Already-uploaded chunks are skipped (idempotent), which enables resumable upload.</p>
      *
-     * @return 当前进度
-     * @throws ChecksumMismatchException 分片 MD5 与期望值不一致（仅拒绝该分片，不影响其它已上传分片）
+     * @return the current progress
+     * @throws ChecksumMismatchException chunk MD5 does not match the expected value
+     *         (only the offending chunk is rejected; other uploaded chunks are unaffected)
      */
     public UploadProgress uploadChunk(ChunkUploadRequest request, InputStream in) throws IOException {
         Objects.requireNonNull(request, "request");
@@ -80,10 +81,10 @@ public class ResumableUploadService {
         int chunkIndex = request.getChunkIndex();
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
-            throw new IllegalArgumentException("chunkTotal 必须大于 0");
+            throw new IllegalArgumentException("chunkTotal must be greater than 0");
         }
         if (chunkIndex < 0 || chunkIndex >= chunkTotal) {
-            throw new IllegalArgumentException("chunkIndex 越界: " + chunkIndex);
+            throw new IllegalArgumentException("chunkIndex out of range: " + chunkIndex);
         }
         long chunkSize = request.getChunkSize() > 0 ? request.getChunkSize() : DEFAULT_CHUNK_SIZE;
 
@@ -96,7 +97,7 @@ public class ResumableUploadService {
                 taskStore.save(task);
             }
             if (task.isMerged()) {
-                throw new IllegalStateException("任务已合并，不可再上传分片: " + identifier);
+                throw new IllegalStateException("Task already merged, cannot upload chunks: " + identifier);
             }
             if (!task.getUploadedChunks().contains(chunkIndex)) {
                 chunkStorage.saveChunk(identifier, chunkIndex, in);
@@ -106,8 +107,8 @@ public class ResumableUploadService {
                     if (!actual.equalsIgnoreCase(request.getChunkMd5().trim())) {
                         chunkStorage.deleteChunk(identifier, chunkIndex);
                         throw new ChecksumMismatchException(
-                                "分片 " + chunkIndex + " MD5 不一致，期望 "
-                                        + request.getChunkMd5() + "，实际 " + actual);
+                                "Chunk " + chunkIndex + " MD5 mismatch, expected "
+                                        + request.getChunkMd5() + ", actual " + actual);
                     }
                 }
                 task.markUploaded(chunkIndex);
@@ -118,7 +119,8 @@ public class ResumableUploadService {
     }
 
     /**
-     * 查询上传进度；任务不存在时返回空进度，便于客户端作为「全新上传」处理。
+     * Queries upload progress; an empty progress is returned when the task does not exist,
+     * so the client can treat it as a brand-new upload.
      */
     public UploadProgress getProgress(String identifier) {
         Strings.requireSafeIdentifier(identifier);
@@ -127,7 +129,7 @@ public class ResumableUploadService {
     }
 
     /**
-     * 判断指定分片是否已上传完成。
+     * Returns whether the given chunk has already been uploaded.
      */
     public boolean isChunkUploaded(String identifier, int chunkIndex) {
         UploadTask task = taskStore.get(identifier).orElse(null);
@@ -135,19 +137,19 @@ public class ResumableUploadService {
     }
 
     /**
-     * 合并所有已上传分片为完整文件，并清理分片。
+     * Merges all uploaded chunks into the complete file and cleans up the chunks.
      *
-     * <p>合并后文件写入 {@code <mergedFileDir>/<identifier>/<fileName>}。</p>
+     * <p>The merged file is written to {@code <mergedFileDir>/<identifier>/<fileName>}.</p>
      *
-     * @throws IllegalStateException 分片不完整或合并后文件大小与声明不一致
-     * @throws NoSuchElementException 任务不存在
+     * @throws IllegalStateException chunks are incomplete or the merged size does not match the declared one
+     * @throws NoSuchElementException the task does not exist
      */
     public UploadResult merge(String identifier) throws IOException {
         Strings.requireSafeIdentifier(identifier);
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
-                throw new NoSuchElementException("上传任务不存在: " + identifier);
+                throw new NoSuchElementException("Upload task not found: " + identifier);
             }
             if (task.isMerged()) {
                 return UploadResult.merged(task, task.getFinalPath(), task.getFinalFileSize());
@@ -159,7 +161,7 @@ public class ResumableUploadService {
                 }
             }
             if (missing > 0) {
-                throw new IllegalStateException("存在未上传的分片，缺少 " + missing + " 个: " + identifier);
+                throw new IllegalStateException("Missing " + missing + " chunk(s) not yet uploaded: " + identifier);
             }
             Strings.requireSafeFileName(task.getFileName());
             Path dir = mergedFileDir.toPath().resolve(identifier);
@@ -169,7 +171,7 @@ public class ResumableUploadService {
                 for (int i = 0; i < task.getChunkTotal(); i++) {
                     File chunkFile = chunkStorage.getChunkFile(identifier, i);
                     if (!chunkFile.isFile()) {
-                        throw new IllegalStateException("分片缺失: " + i + " (" + identifier + ")");
+                        throw new IllegalStateException("Missing chunk: " + i + " (" + identifier + ")");
                     }
                     Files.copy(chunkFile.toPath(), os);
                 }
@@ -177,8 +179,8 @@ public class ResumableUploadService {
             long size = Files.size(out);
             if (task.getFileSize() > 0 && size != task.getFileSize()) {
                 Files.deleteIfExists(out);
-                throw new IllegalStateException("合并后文件大小不一致，期望 "
-                        + task.getFileSize() + "，实际 " + size + " (" + identifier + ")");
+                throw new IllegalStateException("Merged file size mismatch, expected "
+                        + task.getFileSize() + ", actual " + size + " (" + identifier + ")");
             }
             chunkStorage.deleteChunks(identifier);
             task.setMerged(true);

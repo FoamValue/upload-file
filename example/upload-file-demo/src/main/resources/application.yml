@@ -8,9 +8,9 @@ spring:
       max-request-size: -1
 
 upload-file:
-  # 分片与合并文件的根目录
+  # Root dir for chunks and merged files
   storage-dir: ./data/upload
-  # 任务元数据持久化目录（配置后重启不丢任务）
+  # Task metadata persistence dir (tasks survive restarts when set)
   metadata-dir: ./data/upload/meta
   verify-checksum: true
   upload-url: /upload

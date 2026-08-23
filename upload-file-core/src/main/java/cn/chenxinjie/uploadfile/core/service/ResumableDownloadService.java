@@ -21,7 +21,7 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * 断点续传下载核心服务，基于 HTTP Range 提供区间读取。
+ * Core resumable-download service, reading byte ranges based on HTTP Range.
  */
 public class ResumableDownloadService {
 
@@ -36,7 +36,7 @@ public class ResumableDownloadService {
     }
 
     /**
-     * 定位已合并的完整文件。
+     * Locates the merged complete file.
      */
     public Optional<File> resolveFile(String identifier) {
         if (Strings.isBlank(identifier)) {
@@ -62,7 +62,7 @@ public class ResumableDownloadService {
     }
 
     /**
-     * 解析下载时的文件名（用于 Content-Disposition）。
+     * Resolves the file name used for the download (for Content-Disposition).
      */
     public String resolveFileName(String identifier) {
         UploadTask task = taskStore.get(identifier).orElse(null);
@@ -70,9 +70,9 @@ public class ResumableDownloadService {
     }
 
     /**
-     * 将文件指定区间 [start, start + length) 的字节写入输出流。
+     * Writes the bytes of the file in the range {@code [start, start + length)} to the output stream.
      *
-     * @return 实际写入的字节数
+     * @return the number of bytes actually written
      */
     public long writeRange(File file, long start, long length, OutputStream out) throws IOException {
         try (InputStream in = new BufferedInputStream(new FileInputStream(file))) {
@@ -97,7 +97,7 @@ public class ResumableDownloadService {
             long s = in.skip(n - skipped);
             if (s <= 0) {
                 if (in.read() == -1) {
-                    throw new EOFException("文件提前结束");
+                    throw new EOFException("Unexpected end of file");
                 }
                 skipped++;
             } else {

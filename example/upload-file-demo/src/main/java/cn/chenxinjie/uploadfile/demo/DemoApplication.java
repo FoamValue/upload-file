@@ -10,9 +10,9 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 /**
- * 大文件分片上传 / 断点续传 Demo。
+ * Demo of large-file chunked upload / resumable download.
  *
- * <p>启动后访问 http://localhost:8080/ 使用前端页面。</p>
+ * <p>After startup, open http://localhost:8080/ to use the frontend page.</p>
  */
 @SpringBootApplication
 public class DemoApplication {

@@ -7,31 +7,32 @@
 package cn.chenxinjie.uploadfile.core.model;
 
 /**
- * 单个分片的上传请求参数。
+ * Parameters of a single chunk upload request.
  *
- * <p>由客户端在每次上传分片时提交，携带整个文件的元信息与当前分片的序号。</p>
+ * <p>Sent by the client on each chunk upload, carrying the metadata of the whole file
+ * together with the index of the current chunk.</p>
  */
 public class ChunkUploadRequest {
 
-    /** 文件唯一标识，建议使用整个文件的 MD5（也用于分片目录与任务记录的主键）。 */
+    /** Unique file identifier; the MD5 of the whole file is recommended (also the key for chunk dirs and task records). */
     private String identifier;
 
-    /** 原始文件名（含扩展名）。 */
+    /** Original file name (including the extension). */
     private String fileName;
 
-    /** 整个文件的字节大小；未知时可传 0。 */
+    /** Total file size in bytes; 0 if unknown. */
     private long fileSize;
 
-    /** 单个分片的字节大小；小于等于 0 时使用服务端默认分片大小。 */
+    /** Chunk size in bytes; values &lt;= 0 fall back to the server default chunk size. */
     private long chunkSize;
 
-    /** 总分片数。 */
+    /** Total number of chunks. */
     private int chunkTotal;
 
-    /** 当前分片序号（从 0 开始）。 */
+    /** Index of the current chunk (starts at 0). */
     private int chunkIndex;
 
-    /** 当前分片的 MD5，用于上传完整性校验；可空（关闭校验时忽略）。 */
+    /** MD5 of the current chunk for integrity verification; may be null (ignored when verification is disabled). */
     private String chunkMd5;
 
     public String getIdentifier() {

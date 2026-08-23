@@ -24,17 +24,18 @@ import java.io.IOException;
 import java.io.InputStream;
 
 /**
- * 分片上传 Servlet。
+ * Chunk-upload servlet.
  *
- * <p>接口约定（{@code @MultipartConfig}，文件字段名固定为 {@code file}）：</p>
+ * <p>Endpoint contract ({@code @MultipartConfig}, the file field is fixed as {@code file}):</p>
  * <ul>
- *   <li>{@code POST /upload}：上传一个分片（multipart，携带 identifier/fileName/fileSize/chunkSize/chunkTotal/chunkIndex/chunkMd5 与分片文件），返回 {@link UploadProgress} JSON</li>
- *   <li>{@code POST /upload?action=merge&identifier=xxx}：合并分片，返回 {@link UploadResult} JSON</li>
- *   <li>{@code GET /upload?action=progress&identifier=xxx}：查询进度，返回 {@link UploadProgress} JSON</li>
+ *   <li>{@code POST /upload}: upload one chunk (multipart, carrying identifier/fileName/fileSize/chunkSize/chunkTotal/chunkIndex/chunkMd5 plus the chunk file); returns {@link UploadProgress} JSON</li>
+ *   <li>{@code POST /upload?action=merge&identifier=xxx}: merge chunks; returns {@link UploadResult} JSON</li>
+ *   <li>{@code GET /upload?action=progress&identifier=xxx}: query progress; returns {@link UploadProgress} JSON</li>
  * </ul>
  *
- * <p>可通过 setter 注入服务，也可在 web.xml / @WebInitParam 中通过 {@code storage-dir}、{@code metadata-dir}
- * 初始化参数使用默认实现（与 {@link DownloadServlet} 共享同一上下文）。</p>
+ * <p>The service can be injected via a setter, or the default implementation can be used by
+ * providing {@code storage-dir} / {@code metadata-dir} init-params in web.xml or
+ * {@code @WebInitParam} (shared with {@link DownloadServlet}).</p>
  */
 @WebServlet(name = "uploadFileServlet", urlPatterns = "/upload", loadOnStartup = 1)
 @MultipartConfig(fileSizeThreshold = 1024 * 1024, maxFileSize = -1, maxRequestSize = -1)
@@ -107,7 +108,7 @@ public class UploadServlet extends HttpServlet {
             UploadResult result = uploadService.merge(identifier);
             writeJson(resp, result.isSuccess() ? 200 : 400, gson.toJson(result));
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "合并失败: " + e.getMessage())));
+            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Merge failed: " + e.getMessage())));
         }
     }
 

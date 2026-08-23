@@ -7,7 +7,7 @@
 package cn.chenxinjie.uploadfile.core.exception;
 
 /**
- * 分片 MD5 校验不一致时抛出。
+ * Thrown when a chunk MD5 does not match the expected value.
  */
 public class ChecksumMismatchException extends RuntimeException {
 

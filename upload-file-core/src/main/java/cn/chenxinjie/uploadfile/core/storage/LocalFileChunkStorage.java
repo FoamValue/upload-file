@@ -25,10 +25,10 @@ import java.util.List;
 import java.util.stream.Stream;
 
 /**
- * 本地文件系统分片存储。
+ * Local file system chunk storage.
  *
- * <p>目录结构：{@code <root>/<identifier>/<chunkIndex>.part}，写盘采用「临时文件 + 原子改名」，
- * 避免上传中断时留下半个分片。</p>
+ * <p>Directory layout: {@code <root>/<identifier>/<chunkIndex>.part}. Chunks are written via
+ * "temp file + atomic rename", so an interrupted upload never leaves a half-written chunk.</p>
  */
 public class LocalFileChunkStorage implements ChunkStorage {
 
@@ -41,7 +41,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
         try {
             Files.createDirectories(rootDir);
         } catch (IOException e) {
-            throw new UncheckedIOException("无法创建分片目录: " + rootDir, e);
+            throw new UncheckedIOException("Unable to create chunk directory: " + rootDir, e);
         }
     }
 
@@ -102,11 +102,11 @@ public class LocalFileChunkStorage implements ChunkStorage {
                 try {
                     result.add(Integer.parseInt(index));
                 } catch (NumberFormatException ignored) {
-                    // 忽略非分片文件
+                    // ignore non-chunk files
                 }
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("列出分片失败: " + dir, e);
+            throw new UncheckedIOException("Failed to list chunks: " + dir, e);
         }
         Collections.sort(result);
         return result;
@@ -118,7 +118,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
         try {
             Files.deleteIfExists(chunkPath(identifier, chunkIndex));
         } catch (IOException e) {
-            throw new UncheckedIOException("删除分片失败: " + chunkPath(identifier, chunkIndex), e);
+            throw new UncheckedIOException("Failed to delete chunk: " + chunkPath(identifier, chunkIndex), e);
         }
     }
 
@@ -139,7 +139,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
                         }
                     });
         } catch (IOException e) {
-            throw new UncheckedIOException("删除分片目录失败: " + dir, e);
+            throw new UncheckedIOException("Failed to delete chunk directory: " + dir, e);
         }
     }
 }

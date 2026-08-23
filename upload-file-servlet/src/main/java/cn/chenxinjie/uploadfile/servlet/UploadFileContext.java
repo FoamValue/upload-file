@@ -20,12 +20,12 @@ import java.io.File;
 import java.nio.file.Paths;
 
 /**
- * 供上传/下载 Servlet 共享的运行时上下文，挂载在 {@link ServletContext} 属性上。
+ * Runtime context shared by the upload/download servlets, attached as a {@link ServletContext} attribute.
  *
- * <p>默认按以下 init-param 初始化：</p>
+ * <p>By default it is initialized from the following init-params:</p>
  * <ul>
- *   <li>{@code storage-dir}：分片与合并文件的根目录（默认 {@code ./upload-file-data}）</li>
- *   <li>{@code metadata-dir}：任务元数据持久化目录；不配置时使用内存存储</li>
+ *   <li>{@code storage-dir}: root dir for chunks and merged files (default {@code ./upload-file-data})</li>
+ *   <li>{@code metadata-dir}: task metadata persistence dir; when not set, in-memory storage is used</li>
  * </ul>
  */
 public final class UploadFileContext {
@@ -58,7 +58,7 @@ public final class UploadFileContext {
     }
 
     /**
-     * 直接按目录构建（供 Spring Boot 等容器接管时使用）。
+     * Builds a context directly from directories (used when a container such as Spring Boot takes over).
      */
     public static UploadFileContext build(String storageDir, String metadataDir) {
         TaskStore store = metadataDir == null || metadataDir.trim().isEmpty()

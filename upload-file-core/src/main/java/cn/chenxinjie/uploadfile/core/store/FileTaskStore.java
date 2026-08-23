@@ -30,7 +30,8 @@ import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 基于本地文件的元数据存储。每个任务一个 {@code identifier.json} 文件，写盘采用「临时文件 + 原子改名」。
+ * File-based metadata store. Each task is stored as an {@code identifier.json} file,
+ * written via "temp file + atomic rename".
  */
 public class FileTaskStore implements TaskStore {
 
@@ -45,7 +46,7 @@ public class FileTaskStore implements TaskStore {
         try {
             Files.createDirectories(rootDir);
         } catch (IOException e) {
-            throw new UncheckedIOException("无法创建元数据目录: " + rootDir, e);
+            throw new UncheckedIOException("Unable to create metadata directory: " + rootDir, e);
         }
     }
 
@@ -83,7 +84,7 @@ public class FileTaskStore implements TaskStore {
             cache.put(identifier, task);
             return Optional.of(task);
         } catch (IOException e) {
-            throw new UncheckedIOException("读取任务元数据失败: " + path, e);
+            throw new UncheckedIOException("Failed to read task metadata: " + path, e);
         }
     }
 
@@ -104,13 +105,13 @@ public class FileTaskStore implements TaskStore {
             }
             cache.put(task.getIdentifier(), task);
         } catch (IOException e) {
-            throw new UncheckedIOException("保存任务元数据失败: " + path, e);
+            throw new UncheckedIOException("Failed to save task metadata: " + path, e);
         } finally {
             if (tmp != null) {
                 try {
                     Files.deleteIfExists(tmp);
                 } catch (IOException ignored) {
-                    // 忽略清理失败
+                    // ignore cleanup failure
                 }
             }
         }
@@ -123,7 +124,7 @@ public class FileTaskStore implements TaskStore {
         try {
             return Files.deleteIfExists(taskPath(identifier));
         } catch (IOException e) {
-            throw new UncheckedIOException("删除任务元数据失败: " + identifier, e);
+            throw new UncheckedIOException("Failed to delete task metadata: " + identifier, e);
         }
     }
 
@@ -137,7 +138,7 @@ public class FileTaskStore implements TaskStore {
                 get(identifier).ifPresent(result::add);
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("列出任务元数据失败: " + rootDir, e);
+            throw new UncheckedIOException("Failed to list task metadata: " + rootDir, e);
         }
         return Collections.unmodifiableList(result);
     }

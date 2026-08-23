@@ -10,7 +10,8 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * 上传进度，用于「查询进度」与「分片上传响应」，客户端可据此实现断点续传。
+ * Upload progress, used as the response of "query progress" and "chunk upload";
+ * clients use it to implement resumable upload.
  */
 public class UploadProgress {
 

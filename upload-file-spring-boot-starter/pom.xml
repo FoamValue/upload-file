@@ -18,7 +18,7 @@
 
     <artifactId>upload-file-spring-boot-starter</artifactId>
     <name>upload-file-spring-boot-starter</name>
-    <description>Spring Boot 2.x 自动配置：自动装配核心服务并注册上传/下载 Servlet</description>
+    <description>Spring Boot 2.x auto-configuration: auto-wires core services and registers upload/download servlets</description>
 
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>

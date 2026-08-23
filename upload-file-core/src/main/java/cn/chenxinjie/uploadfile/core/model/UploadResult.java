@@ -10,7 +10,7 @@ import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * 上传操作的结果，主要用于「合并分片」的响应。
+ * Result of an upload operation, mainly used as the response of "merge chunks".
  */
 public class UploadResult {
 
@@ -27,7 +27,7 @@ public class UploadResult {
     public static UploadResult merged(UploadTask task, String finalPath, long finalFileSize) {
         UploadResult r = new UploadResult();
         r.setSuccess(true);
-        r.setMessage("合并成功");
+        r.setMessage("Merged successfully");
         r.setIdentifier(task.getIdentifier());
         r.setChunkTotal(task.getChunkTotal());
         r.setUploadedCount(task.getChunkTotal());

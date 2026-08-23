@@ -16,7 +16,7 @@
     <packaging>pom</packaging>
 
     <name>upload-file</name>
-    <description>大文件分片上传、断点续传下载 Maven 工具包（JDK8+）</description>
+    <description>Maven toolkit for large-file chunked upload and resumable download (JDK 8+)</description>
 
     <licenses>
         <license>
@@ -56,7 +56,7 @@
         <maven.compiler.release>8</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
 
-        <!-- 聚合父 POM 不发布，防止 mvn deploy 时默认 deploy 因缺少 distributionManagement 失败 -->
+        <!-- The aggregator parent is not published; prevents the default deploy from failing on missing distributionManagement -->
         <maven.deploy.skip>true</maven.deploy.skip>
 
         <gson.version>2.10.1</gson.version>

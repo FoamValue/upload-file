@@ -18,7 +18,7 @@
 
     <artifactId>upload-file-core</artifactId>
     <name>upload-file-core</name>
-    <description>核心组件：分片上传 / 断点续传 / 校验与合并的纯 Java 实现</description>
+    <description>Core components: pure-Java implementation of chunked upload / resumable download / verification and merge</description>
 
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>

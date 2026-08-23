@@ -19,10 +19,10 @@
 
     <artifactId>upload-file-demo</artifactId>
     <name>upload-file-demo</name>
-    <description>演示用例：Spring Boot 大文件分片上传 / 断点续传 Demo（含前端页面）</description>
+    <description>Demo application: Spring Boot large-file chunked upload / resumable download demo (with frontend page)</description>
 
     <properties>
-        <!-- 演示用例不发布到中央仓库 -->
+        <!-- The demo application is not published to the Central Repository -->
         <maven.deploy.skip>true</maven.deploy.skip>
     </properties>
 

@@ -14,7 +14,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 
 /**
- * 摘要校验工具，支持 MD5 / SHA-1 / SHA-256。
+ * Checksum utility supporting MD5 / SHA-1 / SHA-256.
  */
 public final class ChecksumUtil {
 
@@ -79,7 +79,7 @@ public final class ChecksumUtil {
         try {
             return MessageDigest.getInstance(algorithm);
         } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("不支持的摘要算法: " + algorithm, e);
+            throw new IllegalStateException("Unsupported checksum algorithm: " + algorithm, e);
         }
     }
 

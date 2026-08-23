@@ -9,13 +9,13 @@ package cn.chenxinjie.uploadfile.core.model;
 import java.util.Optional;
 
 /**
- * HTTP Range 请求的解析结果（字节范围，含 end 端）。
+ * Result of parsing an HTTP Range header (byte range, inclusive of {@code end}).
  *
- * <p>支持三种写法：</p>
+ * <p>Three forms are supported:</p>
  * <ul>
- *   <li>{@code bytes=start-end}：指定范围</li>
- *   <li>{@code bytes=start-}：从 start 到文件末尾</li>
- *   <li>{@code bytes=-suffix}：最后 suffix 个字节</li>
+ *   <li>{@code bytes=start-end}: explicit range</li>
+ *   <li>{@code bytes=start-}: from {@code start} to the end of the file</li>
+ *   <li>{@code bytes=-suffix}: the last {@code suffix} bytes</li>
  * </ul>
  */
 public class DownloadRange {
@@ -27,7 +27,7 @@ public class DownloadRange {
     public DownloadRange(long start, long end, long total) {
         if (start < 0 || end < start || total < 0 || end >= total) {
             throw new IllegalArgumentException(
-                    "非法字节范围: start=" + start + ", end=" + end + ", total=" + total);
+                    "Invalid byte range: start=" + start + ", end=" + end + ", total=" + total);
         }
         this.start = start;
         this.end = end;
@@ -35,9 +35,10 @@ public class DownloadRange {
     }
 
     /**
-     * 解析 Range 请求头。
+     * Parses a Range request header.
      *
-     * @return 可满足的范围；头部缺失、格式非法或不可满足（如 start 越界）时返回 {@link Optional#empty()}
+     * @return the satisfiable range; {@link Optional#empty()} when the header is missing,
+     *         malformed, or unsatisfiable (e.g. {@code start} out of bounds)
      */
     public static Optional<DownloadRange> parse(String rangeHeader, long total) {
         if (rangeHeader == null || total < 0) {
@@ -98,7 +99,7 @@ public class DownloadRange {
         return total;
     }
 
-    /** 返回本范围的实际字节数（end 端含）。 */
+    /** Number of bytes covered by this range (inclusive of {@code end}). */
     public long getContentLength() {
         return end - start + 1;
     }
