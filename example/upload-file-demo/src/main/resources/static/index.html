@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>大文件分片上传 · 断点续传 Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
+    <style>
+        body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; color: #222; }
+        h1 { font-size: 22px; }
+        .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        button { margin: 4px 6px 4px 0; padding: 6px 14px; font-size: 14px; cursor: pointer; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .bar { height: 18px; background: #eee; border-radius: 9px; overflow: hidden; margin-top: 10px; }
+        .bar > div { height: 100%; width: 0; background: #4caf50; transition: width .2s; }
+        .info { margin-top: 8px; font-size: 13px; color: #555; }
+        #log { background: #f7f7f7; border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.7; max-height: 220px; overflow: auto; font-family: Menlo, Consolas, monospace; white-space: pre-wrap; }
+        input[type=file] { margin: 8px 0; }
+    </style>
+</head>
+<body>
+<h1>大文件分片上传 · 断点续传 Demo</h1>
+
+<div class="card">
+    <div>
+        <label>选择文件（建议选大文件体验分片效果）：</label>
+        <input type="file" id="fileInput">
+    </div>
+    <div class="info">分片大小：5MB（共 <span id="chunkTotal">-</span> 片，文件 MD5：<span id="md5">-</span>）</div>
+    <div>
+        <button id="btnStart" disabled onclick="startUpload(false)">开始上传</button>
+        <button id="btnPause" disabled onclick="pause()">暂停</button>
+        <button id="btnResume" disabled onclick="startUpload(true)">继续（断点续传）</button>
+        <button id="btnMerge" disabled onclick="merge()">合并文件</button>
+        <button id="btnDownload" disabled onclick="downloadFull()">完整下载</button>
+        <button id="btnResumeDownload" disabled onclick="downloadWithResume()">模拟断点续传下载</button>
+    </div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="info">已上传 <span id="uploaded">0</span> / <span id="chunkTotal2">-</span> 片（<span id="percent">0</span>%）</div>
+</div>
+
+<div class="card">
+    <h3 style="font-size:15px;margin-top:0">操作日志</h3>
+    <div id="log"></div>
+</div>
+
+<script>
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const MAX_MD5_CHUNK = 2 * 1024 * 1024;
+
+    let file = null;
+    let fileMd5 = null;
+    let chunkTotal = 0;
+    let currentChunk = 0;
+    let paused = false;
+    let uploadedSet = new Set();
+
+    const $ = id => document.getElementById(id);
+
+    $('fileInput').addEventListener('change', async function () {
+        file = this.files[0];
+        if (!file) return;
+        currentChunk = 0;
+        uploadedSet = new Set();
+        fileMd5 = null;
+        disableButtons(true);
+        log('开始计算文件 MD5（' + file.name + '，' + formatSize(file.size) + '）...');
+        fileMd5 = await computeMd5(file);
+        chunkTotal = Math.ceil(file.size / CHUNK_SIZE);
+        $('chunkTotal').textContent = chunkTotal;
+        $('chunkTotal2').textContent = chunkTotal;
+        $('md5').textContent = fileMd5;
+        log('MD5 = ' + fileMd5 + '，共 ' + chunkTotal + ' 片');
+        $('btnStart').disabled = false;
+    });
+
+    function disableButtons(disabled) {
+        ['btnStart', 'btnPause', 'btnResume', 'btnMerge', 'btnDownload', 'btnResumeDownload']
+            .forEach(id => $(id).disabled = disabled);
+    }
+
+    function log(msg) {
+        const line = document.createElement('div');
+        line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        $('log').appendChild(line);
+        $('log').scrollTop = $('log').scrollHeight;
+    }
+
+    function formatSize(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+        return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+    }
+
+    function computeMd5(blob) {
+        return new Promise((resolve, reject) => {
+            const spark = new SparkMD5.ArrayBuffer();
+            const reader = new FileReader();
+            let offset = 0;
+            reader.onerror = reject;
+            reader.onload = e => {
+                spark.append(e.target.result);
+                offset += e.target.result.byteLength;
+                if (offset < blob.size) {
+                    loadNext();
+                } else {
+                    resolve(spark.end());
+                }
+            };
+            const loadNext = () => reader.readAsArrayBuffer(blob.slice(offset, offset + MAX_MD5_CHUNK));
+            loadNext();
+        });
+    }
+
+    async function uploadChunk(index) {
+        const form = new FormData();
+        form.append('identifier', fileMd5);
+        form.append('fileName', file.name);
+        form.append('fileSize', file.size);
+        form.append('chunkSize', CHUNK_SIZE);
+        form.append('chunkTotal', chunkTotal);
+        form.append('chunkIndex', index);
+        form.append('chunkMd5', '');
+        const start = index * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        form.append('file', file.slice(start, end), file.name + '.part' + index);
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status);
+        }
+        return res.json();
+    }
+
+    async function startUpload(resume) {
+        if (!file || !fileMd5) return;
+        paused = false;
+        $('btnStart').disabled = true;
+        $('btnResume').disabled = true;
+        $('btnPause').disabled = false;
+        if (resume) {
+            log('查询服务端进度以跳过已上传分片...');
+            const p = await queryProgress();
+            uploadedSet = new Set(p.uploadedChunks || []);
+            log('已上传 ' + uploadedSet.size + ' 片，从断点继续');
+        }
+        while (currentChunk < chunkTotal) {
+            if (paused) {
+                log('已暂停，可点击「继续（断点续传）」恢复');
+                break;
+            }
+            if (uploadedSet.has(currentChunk)) {
+                currentChunk++;
+                continue;
+            }
+            try {
+                const p = await uploadChunk(currentChunk);
+                uploadedSet.add(currentChunk);
+                log('分片 ' + currentChunk + ' / ' + chunkTotal + ' 上传成功');
+            } catch (e) {
+                log('分片 ' + currentChunk + ' 上传失败：' + e.message + '（可稍后断点续传）');
+                break;
+            }
+            currentChunk++;
+            renderProgress();
+        }
+        $('btnPause').disabled = true;
+        if (currentChunk >= chunkTotal) {
+            $('btnMerge').disabled = false;
+            log('全部分片上传完成，点击「合并文件」');
+        }
+    }
+
+    function pause() {
+        paused = true;
+    }
+
+    async function queryProgress() {
+        const res = await fetch('/upload?action=progress&identifier=' + encodeURIComponent(fileMd5));
+        return res.json();
+    }
+
+    function renderProgress() {
+        $('uploaded').textContent = uploadedSet.size;
+        const pct = Math.round(uploadedSet.size * 100 / chunkTotal);
+        $('percent').textContent = pct;
+        $('bar').style.width = pct + '%';
+    }
+
+    async function merge() {
+        try {
+            log('开始合并分片...');
+            const res = await fetch('/upload?action=merge&identifier=' + encodeURIComponent(fileMd5), { method: 'POST' });
+            const data = await res.json();
+            log('合并结果：' + JSON.stringify(data));
+            if (data.success) {
+                $('btnDownload').disabled = false;
+                $('btnResumeDownload').disabled = false;
+                log('合并完成，文件大小 ' + formatSize(data.finalFileSize) + '，可下载');
+            }
+        } catch (e) {
+            log('合并失败：' + e.message);
+        }
+    }
+
+    function downloadFull() {
+        window.open('/download?identifier=' + encodeURIComponent(fileMd5), '_blank');
+    }
+
+    function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+    async function downloadRange(start, end) {
+        const res = await fetch('/download?identifier=' + encodeURIComponent(fileMd5), {
+            headers: { Range: 'bytes=' + start + '-' + end }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.blob();
+    }
+
+    async function downloadWithResume() {
+        try {
+            const mid = Math.floor(file.size / 2);
+            log('第 1 段：请求 Range bytes=0-' + (mid - 1) + ' ...');
+            const b1 = await downloadRange(0, mid - 1);
+            log('第 1 段完成，共 ' + formatSize(b1.size) + '（模拟网络中断，稍后断点续传）');
+            await sleep(800);
+            log('第 2 段：请求 Range bytes=' + mid + '-' + (file.size - 1) + ' ...');
+            const b2 = await downloadRange(mid, file.size - 1);
+            log('第 2 段完成，共 ' + formatSize(b2.size));
+            const full = new Blob([b1, b2], { type: 'application/octet-stream' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(full);
+            a.download = file.name;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            log('两段拼接完成，已触发下载：' + file.name);
+        } catch (e) {
+            log('断点续传下载失败：' + e.message);
+        }
+    }
+</script>
+</body>
+</html>

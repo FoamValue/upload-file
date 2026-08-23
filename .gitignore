@@ -1,0 +1,13 @@
+target/
+*.class
+*.jar
+*.war
+
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# 运行 Demo 时产生的本地数据
+data/
+*.log

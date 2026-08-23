@@ -1,0 +1,17 @@
+server:
+  port: 8080
+
+spring:
+  servlet:
+    multipart:
+      max-file-size: -1
+      max-request-size: -1
+
+upload-file:
+  # 分片与合并文件的根目录
+  storage-dir: ./data/upload
+  # 任务元数据持久化目录（配置后重启不丢任务）
+  metadata-dir: ./data/upload/meta
+  verify-checksum: true
+  upload-url: /upload
+  download-url: /download
