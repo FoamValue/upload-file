@@ -47,6 +47,7 @@
         <module>upload-file-servlet</module>
         <module>upload-file-spring-boot-starter</module>
         <module>example/upload-file-demo</module>
+        <module>example/upload-file-servlet-demo</module>
     </modules>
 
     <properties>

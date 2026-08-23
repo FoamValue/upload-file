@@ -128,14 +128,25 @@ mvn install
 
 ## 运行 Demo
 
+**Spring Boot Demo**（`example/upload-file-demo`）：
+
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.1.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
 合并与断点续传下载。
+
+**纯 Servlet Demo**（`example/upload-file-servlet-demo`，无 Spring，通过 web.xml 装配）：
+
+```bash
+mvn -pl example/upload-file-servlet-demo jetty:run
+```
+
+访问 <http://localhost:8080/> 使用同一前端页面，直接调用 `UploadServlet` / `DownloadServlet`，
+存储目录通过 web.xml 中的 `storage-dir` / `metadata-dir` init-param 指定。
 
 ## 安全
 

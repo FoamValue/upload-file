@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Large-File Chunked Upload · Resumable Download Demo</title>
+    <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
+    <style>
+        body { font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; max-width: 860px; margin: 32px auto; padding: 0 16px; color: #222; }
+        h1 { font-size: 22px; }
+        .card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+        button { margin: 4px 6px 4px 0; padding: 6px 14px; font-size: 14px; cursor: pointer; }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        .bar { height: 18px; background: #eee; border-radius: 9px; overflow: hidden; margin-top: 10px; }
+        .bar > div { height: 100%; width: 0; background: #4caf50; transition: width .2s; }
+        .info { margin-top: 8px; font-size: 13px; color: #555; }
+        #log { background: #f7f7f7; border-radius: 6px; padding: 10px; font-size: 12px; line-height: 1.7; max-height: 220px; overflow: auto; font-family: Menlo, Consolas, monospace; white-space: pre-wrap; }
+        input[type=file] { margin: 8px 0; }
+    </style>
+</head>
+<body>
+<h1>Large-File Chunked Upload · Resumable Download Demo</h1>
+
+<div class="card">
+    <div>
+        <label>Select a file (pick a large file to see chunking):</label>
+        <input type="file" id="fileInput">
+    </div>
+    <div class="info">Chunk size: 5MB (total chunks: <span id="chunkTotal">-</span>, file MD5: <span id="md5">-</span>)</div>
+    <div>
+        <button id="btnStart" disabled onclick="startUpload(false)">Start Upload</button>
+        <button id="btnPause" disabled onclick="pause()">Pause</button>
+        <button id="btnResume" disabled onclick="startUpload(true)">Resume</button>
+        <button id="btnMerge" disabled onclick="merge()">Merge</button>
+        <button id="btnDownload" disabled onclick="downloadFull()">Download</button>
+        <button id="btnResumeDownload" disabled onclick="downloadWithResume()">Resume Download (Demo)</button>
+    </div>
+    <div class="bar"><div id="bar"></div></div>
+    <div class="info">Uploaded <span id="uploaded">0</span> / <span id="chunkTotal2">-</span> chunks (<span id="percent">0</span>%)</div>
+</div>
+
+<div class="card">
+    <h3 style="font-size:15px;margin-top:0">Operation Log</h3>
+    <div id="log"></div>
+</div>
+
+<script>
+    const CHUNK_SIZE = 5 * 1024 * 1024;
+    const MAX_MD5_CHUNK = 2 * 1024 * 1024;
+
+    let file = null;
+    let fileMd5 = null;
+    let chunkTotal = 0;
+    let currentChunk = 0;
+    let paused = false;
+    let uploadedSet = new Set();
+
+    const $ = id => document.getElementById(id);
+
+    $('fileInput').addEventListener('change', async function () {
+        file = this.files[0];
+        if (!file) return;
+        currentChunk = 0;
+        uploadedSet = new Set();
+        fileMd5 = null;
+        disableButtons(true);
+        log('Computing file MD5 (' + file.name + ', ' + formatSize(file.size) + ')...');
+        fileMd5 = await computeMd5(file);
+        chunkTotal = Math.ceil(file.size / CHUNK_SIZE);
+        $('chunkTotal').textContent = chunkTotal;
+        $('chunkTotal2').textContent = chunkTotal;
+        $('md5').textContent = fileMd5;
+        log('MD5 = ' + fileMd5 + ', ' + chunkTotal + ' chunk(s) in total');
+        $('btnStart').disabled = false;
+    });
+
+    function disableButtons(disabled) {
+        ['btnStart', 'btnPause', 'btnResume', 'btnMerge', 'btnDownload', 'btnResumeDownload']
+            .forEach(id => $(id).disabled = disabled);
+    }
+
+    function log(msg) {
+        const line = document.createElement('div');
+        line.textContent = '[' + new Date().toLocaleTimeString() + '] ' + msg;
+        $('log').appendChild(line);
+        $('log').scrollTop = $('log').scrollHeight;
+    }
+
+    function formatSize(n) {
+        if (n < 1024) return n + ' B';
+        if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+        if (n < 1024 * 1024 * 1024) return (n / 1024 / 1024).toFixed(1) + ' MB';
+        return (n / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+    }
+
+    function computeMd5(blob) {
+        return new Promise((resolve, reject) => {
+            const spark = new SparkMD5.ArrayBuffer();
+            const reader = new FileReader();
+            let offset = 0;
+            reader.onerror = reject;
+            reader.onload = e => {
+                spark.append(e.target.result); // feed this slice into the incremental MD5
+                offset += e.target.result.byteLength;
+                if (offset < blob.size) {
+                    loadNext(); // keep reading until the whole file has been processed
+                } else {
+                    resolve(spark.end());
+                }
+            };
+            const loadNext = () => reader.readAsArrayBuffer(blob.slice(offset, offset + MAX_MD5_CHUNK));
+            loadNext();
+        });
+    }
+
+    async function uploadChunk(index) {
+        const form = new FormData();
+        form.append('identifier', fileMd5);
+        form.append('fileName', file.name);
+        form.append('fileSize', file.size);
+        form.append('chunkSize', CHUNK_SIZE);
+        form.append('chunkTotal', chunkTotal);
+        form.append('chunkIndex', index);
+        form.append('chunkMd5', '');
+        const start = index * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        form.append('file', file.slice(start, end), file.name + '.part' + index);
+        const res = await fetch('/upload', { method: 'POST', body: form });
+        if (!res.ok) {
+            throw new Error('HTTP ' + res.status);
+        }
+        return res.json();
+    }
+
+    async function startUpload(resume) {
+        if (!file || !fileMd5) return;
+        paused = false;
+        $('btnStart').disabled = true;
+        $('btnResume').disabled = true;
+        $('btnPause').disabled = false;
+        if (resume) {
+            // Ask the server which chunks already exist and skip them (resumable upload).
+            log('Querying server progress to skip already-uploaded chunks...');
+            const p = await queryProgress();
+            uploadedSet = new Set(p.uploadedChunks || []);
+            log('Resuming from breakpoint, ' + uploadedSet.size + ' chunk(s) already uploaded');
+        }
+        while (currentChunk < chunkTotal) {
+            if (paused) {
+                log('Paused. Click Resume to continue.');
+                break;
+            }
+            if (uploadedSet.has(currentChunk)) {
+                currentChunk++; // chunk already uploaded on a previous attempt; skip it
+                continue;
+            }
+            try {
+                const p = await uploadChunk(currentChunk);
+                uploadedSet.add(currentChunk);
+                log('Chunk ' + currentChunk + ' / ' + chunkTotal + ' uploaded');
+            } catch (e) {
+                log('Chunk ' + currentChunk + ' failed: ' + e.message + ' (you can resume later)');
+                break;
+            }
+            currentChunk++;
+            renderProgress();
+        }
+        $('btnPause').disabled = true;
+        if (currentChunk >= chunkTotal) {
+            $('btnMerge').disabled = false;
+            log('All chunks uploaded. Click Merge.');
+        }
+    }
+
+    function pause() {
+        paused = true;
+    }
+
+    async function queryProgress() {
+        const res = await fetch('/upload?action=progress&identifier=' + encodeURIComponent(fileMd5));
+        return res.json();
+    }
+
+    function renderProgress() {
+        $('uploaded').textContent = uploadedSet.size;
+        const pct = Math.round(uploadedSet.size * 100 / chunkTotal);
+        $('percent').textContent = pct;
+        $('bar').style.width = pct + '%';
+    }
+
+    async function merge() {
+        try {
+            log('Merging chunks...');
+            const res = await fetch('/upload?action=merge&identifier=' + encodeURIComponent(fileMd5), { method: 'POST' });
+            const data = await res.json();
+            log('Merge result: ' + JSON.stringify(data));
+            if (data.success) {
+                $('btnDownload').disabled = false;
+                $('btnResumeDownload').disabled = false;
+                log('Merge completed, file size ' + formatSize(data.finalFileSize) + ', ready to download');
+            }
+        } catch (e) {
+            log('Merge failed: ' + e.message);
+        }
+    }
+
+    function downloadFull() {
+        window.open('/download?identifier=' + encodeURIComponent(fileMd5), '_blank');
+    }
+
+    function sleep(ms) {
+        return new Promise(r => setTimeout(r, ms));
+    }
+
+    async function downloadRange(start, end) {
+        const res = await fetch('/download?identifier=' + encodeURIComponent(fileMd5), {
+            headers: { Range: 'bytes=' + start + '-' + end }
+        });
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.blob();
+    }
+
+    async function downloadWithResume() {
+        try {
+            const mid = Math.floor(file.size / 2);
+            // Simulate a resumable download: fetch the first half via Range, "interrupt",
+            // then resume from the breakpoint with a second Range request.
+            log('Segment 1: requesting Range bytes=0-' + (mid - 1) + ' ...');
+            const b1 = await downloadRange(0, mid - 1);
+            log('Segment 1 done, ' + formatSize(b1.size) + ' (simulating network interruption, resuming shortly)');
+            await sleep(800);
+            log('Segment 2: requesting Range bytes=' + mid + '-' + (file.size - 1) + ' ...');
+            const b2 = await downloadRange(mid, file.size - 1);
+            log('Segment 2 done, ' + formatSize(b2.size));
+            const full = new Blob([b1, b2], { type: 'application/octet-stream' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(full);
+            a.download = file.name;
+            a.click();
+            URL.revokeObjectURL(a.href);
+            log('Both segments merged, download triggered: ' + file.name);
+        } catch (e) {
+            log('Resumable download failed: ' + e.message);
+        }
+    }
+</script>
+</body>
+</html>

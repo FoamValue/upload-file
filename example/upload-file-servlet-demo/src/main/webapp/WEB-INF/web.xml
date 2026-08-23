@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (c) 2026 chenxinjie
+
+  SPDX-License-Identifier: MIT
+-->
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+         version="3.1"
+         metadata-complete="true">
+
+    <!--
+      The two servlets share one UploadFileContext (stored on the ServletContext), so they use
+      the same storage directories. `metadata-complete="true"` disables annotation scanning:
+      registration is fully driven by this web.xml and multipart is enabled via <multipart-config>.
+    -->
+    <servlet>
+        <servlet-name>uploadFileServlet</servlet-name>
+        <servlet-class>cn.chenxinjie.uploadfile.servlet.UploadServlet</servlet-class>
+        <init-param>
+            <param-name>storage-dir</param-name>
+            <param-value>./data/upload-servlet</param-value>
+        </init-param>
+        <init-param>
+            <param-name>metadata-dir</param-name>
+            <param-value>./data/upload-servlet/meta</param-value>
+        </init-param>
+        <multipart-config>
+            <max-file-size>104857600</max-file-size>
+            <max-request-size>104857600</max-request-size>
+            <file-size-threshold>1048576</file-size-threshold>
+        </multipart-config>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>uploadFileServlet</servlet-name>
+        <url-pattern>/upload</url-pattern>
+    </servlet-mapping>
+
+    <servlet>
+        <servlet-name>downloadFileServlet</servlet-name>
+        <servlet-class>cn.chenxinjie.uploadfile.servlet.DownloadServlet</servlet-class>
+        <init-param>
+            <param-name>storage-dir</param-name>
+            <param-value>./data/upload-servlet</param-value>
+        </init-param>
+        <init-param>
+            <param-name>metadata-dir</param-name>
+            <param-value>./data/upload-servlet/meta</param-value>
+        </init-param>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>downloadFileServlet</servlet-name>
+        <url-pattern>/download</url-pattern>
+    </servlet-mapping>
+
+    <welcome-file-list>
+        <welcome-file>index.html</welcome-file>
+    </welcome-file-list>
+</web-app>

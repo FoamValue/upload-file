@@ -127,13 +127,24 @@ mvn install
 
 ## Run the Demo
 
+**Spring Boot demo** (`example/upload-file-demo`):
+
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.1.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
+
+**Plain Servlet demo** (`example/upload-file-servlet-demo`, no Spring, wired via `web.xml`):
+
+```bash
+mvn -pl example/upload-file-servlet-demo jetty:run
+```
+
+Open <http://localhost:8080/> and use the same frontend page; it exercises `UploadServlet` / `DownloadServlet`
+directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xml`.
 
 ## Security
 
