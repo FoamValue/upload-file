@@ -1,36 +1,38 @@
 # upload-file
 
-大文件**分片上传 / 断点续传 / Range 断点下载**的 Maven 工具包，纯 Java 编写，兼容 JDK 8 及以上。
+Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / HTTP `Range` resumable download**. Pure Java, compatible with JDK 8 and above.
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0`（父 POM / 聚合器） |
-| 最低运行环境 | JDK 8 |
-| 依赖 | 仅 Gson（核心模块） |
-| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0` (parent POM / aggregator) |
+| Minimum runtime | JDK 8 |
+| Runtime dependency | Gson only (core module) |
+| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
 
-## 特性
+> 🇨🇳 [简体中文](README.zh-CN.md)
 
-- 分片上传：大文件拆分为多个分片依次上传，失败只重传失败分片
-- 断点续传：服务端记录「已上传分片」，客户端可随时暂停/继续
-- 分片校验：可选校验每个分片 MD5，避免脏数据
-- 分片合并：按序合并分片，校验最终文件大小，合并后自动清理分片
-- 断点下载：基于 HTTP `Range` 的断点续传下载（`206 Partial Content`）
-- 元数据持久化：任务进度可落盘（JSON），服务重启不丢任务
-- 多接入方式：纯 Servlet / Spring Boot 自动配置 / 直接调用核心 API
+## Features
 
-## 模块说明
+- **Chunked upload** – split a large file into chunks and upload them sequentially; only failed chunks are re-transferred
+- **Resumable upload** – the server records uploaded chunks; clients can pause and resume at any time
+- **Chunk integrity** – optional per-chunk MD5 verification
+- **Chunk merge** – merge chunks in order, validate the final file size, and clean up chunks automatically
+- **Resumable download** – HTTP `Range` based resumable download (`206 Partial Content`)
+- **Metadata persistence** – upload progress can be persisted as JSON and survives server restarts
+- **Multiple integrations** – plain Servlet, Spring Boot auto-configuration, or direct core API
 
-| 模块 | 说明 | 引用方式 |
+## Modules
+
+| Module | Description | How to use |
 | --- | --- | --- |
-| `upload-file-core` | 核心纯 Java 组件：模型、校验、存储 SPI、上传/下载服务 | 任何 Java/Maven 项目 |
-| `upload-file-servlet` | Servlet 3.0+ 接入：分片上传 Servlet、Range 下载 Servlet | Servlet 容器项目 |
-| `upload-file-spring-boot-starter` | Spring Boot 2.x 自动配置，零配置开箱即用 | Spring Boot 项目 |
-| `example/upload-file-demo` | 演示用例：Spring Boot + 前端页面，展示完整断点续传流程 | — |
+| `upload-file-core` | Core pure-Java components: models, checksum, storage SPI, upload/download services | Any Java/Maven project |
+| `upload-file-servlet` | Servlet 3.0+ integration: chunk-upload Servlet and Range-download Servlet | Servlet container projects |
+| `upload-file-spring-boot-starter` | Spring Boot 2.x auto-configuration, zero-config out of the box | Spring Boot projects |
+| `example/upload-file-demo` | Demo app: Spring Boot + frontend page showing the full resumable workflow | — |
 
-## 快速开始
+## Quick Start
 
-### 方式一：Spring Boot 项目（推荐）
+### Option 1: Spring Boot project (recommended)
 
 ```xml
 <dependency>
@@ -40,26 +42,25 @@
 </dependency>
 ```
 
-配置 `application.yml`：
+Configure `application.yml`:
 
 ```yaml
 upload-file:
-  storage-dir: ./data/upload      # 分片与合并文件根目录
-  metadata-dir: ./data/upload/meta  # 任务元数据落盘目录（留空则用内存）
+  storage-dir: ./data/upload            # root dir for chunks and merged files
+  metadata-dir: ./data/upload/meta      # task metadata dir (leave empty to use in-memory)
   verify-checksum: true
 ```
 
-启动后即可使用：
+Available endpoints after startup:
 
-- `POST /upload` 上传分片
-- `GET /upload?action=progress&identifier=xxx` 查询进度
-- `POST /upload?action=merge&identifier=xxx` 合并
-- `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）
+- `POST /upload` – upload one chunk
+- `GET /upload?action=progress&identifier=xxx` – query upload progress
+- `POST /upload?action=merge&identifier=xxx` – merge chunks
+- `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download)
 
-### 方式二：纯 Servlet 容器
+### Option 2: Plain Servlet container
 
-依赖 `upload-file-servlet`，通过注解扫描注册两个 Servlet（`/upload`、`/download`），
-并可通过 init-param 指定存储目录。要求 Servlet 3.0+（下载超过 2GB 的区间内容需要 Servlet 3.1+）：
+Depend on `upload-file-servlet`; the two servlets (`/upload`, `/download`) are registered via annotation scanning. Requires Servlet 3.0+ (downloading a range over 2 GB requires Servlet 3.1+). Storage directories can be configured with init-params:
 
 ```xml
 <servlet>
@@ -74,44 +75,71 @@ upload-file:
 </servlet-mapping>
 ```
 
-### 方式三：只使用核心 API
+### Option 3: Core API only
 
-依赖 `upload-file-core`，直接编程：
+Depend on `upload-file-core` and code directly:
 
 ```java
 TaskStore store = new FileTaskStore("/data/upload/meta");
 ChunkStorage chunks = new LocalFileChunkStorage("/data/upload/chunks");
 ResumableUploadService service = new ResumableUploadService(store, chunks, new File("/data/upload/files"));
 
-// 上传分片
+// upload a chunk
 service.uploadChunk(request, chunkInputStream);
-// 查询进度 / 合并
+// query progress / merge
 UploadProgress progress = service.getProgress(identifier);
 UploadResult result = service.merge(identifier);
 ```
 
-## 构建与测试
+## Configuration Reference (Spring Boot)
+
+| Property | Default | Description |
+| --- | --- | --- |
+| `upload-file.storage-dir` | `./upload-file-data` | Root dir for chunks and merged files |
+| `upload-file.metadata-dir` | *(empty)* | Task metadata dir; empty = in-memory (lost on restart) |
+| `upload-file.verify-checksum` | `true` | Verify per-chunk MD5 |
+| `upload-file.upload-url` | `/upload` | Upload servlet mapping |
+| `upload-file.download-url` | `/download` | Download servlet mapping |
+| `upload-file.max-chunk-size` | `-1` | Max chunk size in bytes (multipart); `-1` = unlimited |
+| `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); `-1` = unlimited |
+
+## HTTP API Overview
+
+| Method & Path | Description |
+| --- | --- |
+| `POST /upload` (multipart, file field `file`) | Upload one chunk. Params: `identifier`, `fileName`, `fileSize`, `chunkSize`, `chunkTotal`, `chunkIndex`, `chunkMd5`. Returns progress JSON |
+| `GET /upload?action=progress&identifier=xxx` | Query upload progress |
+| `POST /upload?action=merge&identifier=xxx` | Merge all chunks. Returns result JSON |
+| `GET /download?identifier=xxx` | Full download (`200`) |
+| `GET /download?identifier=xxx` + `Range` header | Range download (`206` / `416`) |
+
+## Build & Test
 
 ```bash
 mvn install
 ```
 
-- 要求 Maven 3.6.3+、JDK 8+；
-- 编译目标 `--release 8`，产物为 JDK8 字节码，**JDK 8 可直接引用**；
-- 由于使用了 `--release`，从源码构建需要 JDK 9+（若须在 JDK 8 工具链上构建，移除父 POM 中的 `maven.compiler.release` 即可）。
+- Requires Maven 3.6.3+ and JDK 8+
+- Compiles with `--release 8`, producing JDK 8 bytecode — **usable directly on JDK 8**
+- Because `--release` is used, building from source requires JDK 9+ (to build on a JDK 8 toolchain, remove `maven.compiler.release` from the parent POM)
 
-## 运行 Demo
+## Run the Demo
 
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
-# 或
+# or
 java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 ```
 
-浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
-合并与断点续传下载。
+Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
 
-## 文档
+## Security
 
-- [架构设计](docs/DESIGN.md)
-- [HTTP API 参考](docs/API.md)
+- `identifier` and `fileName` are validated to prevent path traversal
+- Optional per-chunk MD5 verification
+- Chunks and metadata are written atomically (temp file + rename)
+
+## Docs
+
+- [Design](docs/DESIGN.md)
+- [HTTP API reference](docs/API.md)

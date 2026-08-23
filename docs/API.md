@@ -1,29 +1,31 @@
-# HTTP API 参考
+# HTTP API Reference
 
-默认 Servlet 映射：`/upload`、`/download`（Spring Boot 下可通过 `upload-file.upload-url` / `upload-file.download-url` 修改）。
-所有响应均为 UTF-8。
+> 🇺🇸 [English](API.md)
 
-## 1. 上传分片
+Default Servlet mappings: `/upload`, `/download` (under Spring Boot they can be changed via
+`upload-file.upload-url` / `upload-file.download-url`). All responses are UTF-8.
+
+## 1. Upload a Chunk
 
 ```
 POST /upload
 Content-Type: multipart/form-data
 ```
 
-multipart 字段：
+multipart fields:
 
-| 字段 | 类型 | 必填 | 说明 |
+| Field | Type | Required | Description |
 | --- | --- | --- | --- |
-| `identifier` | string | 是 | 文件唯一标识（建议整文件 MD5） |
-| `fileName` | string | 是 | 原始文件名 |
-| `fileSize` | long | 否 | 整个文件字节数（合并时用于校验） |
-| `chunkSize` | long | 否 | 分片大小；≤0 时用服务端默认（5MB） |
-| `chunkTotal` | int | 是 | 总分片数 |
-| `chunkIndex` | int | 是 | 当前分片序号（从 0 开始） |
-| `chunkMd5` | string | 否 | 当前分片 MD5（开启校验时生效） |
-| `file` | file | 是 | 分片内容（字段名固定 `file`） |
+| `identifier` | string | yes | unique file ID (whole-file MD5 is recommended) |
+| `fileName` | string | yes | original file name |
+| `fileSize` | long | no | total file size in bytes (used for merge validation) |
+| `chunkSize` | long | no | chunk size; `<=0` uses the server default (5 MB) |
+| `chunkTotal` | int | yes | total number of chunks |
+| `chunkIndex` | int | yes | current chunk index (starts at 0) |
+| `chunkMd5` | string | no | MD5 of this chunk (used when verification is enabled) |
+| `file` | file | yes | chunk content (field name is fixed as `file`) |
 
-响应 `200`：
+Response `200`:
 
 ```json
 {
@@ -39,30 +41,31 @@ multipart 字段：
 }
 ```
 
-说明：同一分片重复上传直接跳过（幂等），返回当前进度。
+Notes: re-uploading the same chunk is skipped (idempotent); the current progress is returned.
 
-错误（`400`）：参数非法、MD5 不一致、任务已合并。
+Errors (`400`): invalid parameters, MD5 mismatch, task already merged.
 
-## 2. 查询上传进度
+## 2. Query Upload Progress
 
 ```
 GET /upload?action=progress&identifier=<identifier>
 ```
 
-响应同「上传分片」。任务不存在时返回空进度（`uploadedCount=0`），客户端可视为全新上传。
+Same response shape as "Upload a Chunk". When the task does not exist, an empty progress is
+returned (`uploadedCount=0`) so the client can treat it as a brand-new upload.
 
-## 3. 合并分片
+## 3. Merge Chunks
 
 ```
 POST /upload?action=merge&identifier=<identifier>
 ```
 
-响应 `200`：
+Response `200`:
 
 ```json
 {
   "success": true,
-  "message": "合并成功",
+  "message": "Merged successfully",
   "identifier": "55e1c5ec9e2389c5be429808c9800131",
   "chunkTotal": 3,
   "uploadedCount": 3,
@@ -72,40 +75,41 @@ POST /upload?action=merge&identifier=<identifier>
 }
 ```
 
-错误（`400`）：任务不存在、分片不完整、合并后文件大小与 `fileSize` 不一致。
+Errors (`400`): task not found, chunks incomplete, merged size does not match `fileSize`.
 
-## 4. 下载（支持断点续传）
+## 4. Download (Resumable)
 
 ```
 GET /download?identifier=<identifier>
 ```
 
-可选请求头：
+Optional request header:
 
-| 头 | 说明 |
+| Header | Description |
 | --- | --- |
-| `Range: bytes=0-499` | 指定范围 |
-| `Range: bytes=500-` | 从 500 到文件末尾 |
-| `Range: bytes=-500` | 最后 500 字节 |
+| `Range: bytes=0-499` | specific range |
+| `Range: bytes=500-` | from byte 500 to the end of the file |
+| `Range: bytes=-500` | the last 500 bytes |
 
-响应：
+Responses:
 
-| 场景 | 状态码 | 说明 |
+| Scenario | Status | Description |
 | --- | --- | --- |
-| 无 `Range` | `200` | 完整文件，`Content-Length` 为文件大小 |
-| 可满足的 `Range` | `206` | 携带 `Content-Range: bytes start-end/total` |
-| 不可满足的 `Range` | `416` | 携带 `Content-Range: bytes */total` |
-| 文件不存在 | `404` | — |
+| No `Range` | `200` | full file, `Content-Length` equals file size |
+| Satisfiable `Range` | `206` | carries `Content-Range: bytes start-end/total` |
+| Unsatisfiable `Range` | `416` | carries `Content-Range: bytes */total` |
+| File not found | `404` | — |
 
-始终携带 `Accept-Ranges: bytes` 与 `Content-Disposition: attachment`。
+`Accept-Ranges: bytes` and `Content-Disposition: attachment` are always sent.
 
-> 兼容性：小于 2GB 的内容在 Servlet 3.0 容器即可下载；大于 2GB 的区间响应使用
-> `setContentLengthLong`，需要 Servlet 3.1+ 容器。
+> Compatibility: content below 2 GB can be downloaded on a Servlet 3.0 container; range
+> responses above 2 GB use `setContentLengthLong`, which requires a Servlet 3.1+ container.
 
-## 客户端建议流程（断点续传）
+## Suggested Client Flow (Resumable Upload)
 
-1. 计算整个文件 MD5 作为 `identifier`；
-2. 每次续传前先 `GET /upload?action=progress`，跳过 `uploadedChunks` 中已存在的分片；
-3. 依次上传缺失分片，任一分片失败仅需重传该分片；
-4. 全部分片上传完成后调用 merge；
-5. 下载时携带 `Range` 头即可从上次断点继续。
+1. Compute the whole-file MD5 and use it as `identifier`;
+2. Before resuming, call `GET /upload?action=progress` and skip the chunks already present
+   in `uploadedChunks`;
+3. Upload the missing chunks one by one; if any chunk fails, only that chunk is re-uploaded;
+4. Call merge once all chunks are uploaded;
+5. For downloads, carry the `Range` header to resume from the last breakpoint.
