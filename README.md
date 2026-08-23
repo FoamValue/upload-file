@@ -143,3 +143,7 @@ Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume
 
 - [Design](docs/DESIGN.md)
 - [HTTP API reference](docs/API.md)
+
+## License
+
+[MIT](LICENSE)

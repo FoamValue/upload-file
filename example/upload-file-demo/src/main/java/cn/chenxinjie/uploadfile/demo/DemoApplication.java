@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2026 chenxinjie
+ *
+ * SPDX-License-Identifier: MIT
+ */
+
 package cn.chenxinjie.uploadfile.demo;
 
 import org.springframework.boot.SpringApplication;

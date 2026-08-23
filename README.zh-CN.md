@@ -145,3 +145,7 @@ java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 
 - [架构设计](docs/DESIGN.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
+
+## 许可证
+
+[MIT](LICENSE)
