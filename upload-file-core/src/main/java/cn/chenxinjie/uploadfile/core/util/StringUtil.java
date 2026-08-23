@@ -9,9 +9,9 @@ package cn.chenxinjie.uploadfile.core.util;
 /**
  * String utilities.
  */
-public final class Strings {
+public final class StringUtil {
 
-    private Strings() {
+    private StringUtil() {
     }
 
     public static boolean isBlank(String s) {

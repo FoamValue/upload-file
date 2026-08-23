@@ -78,6 +78,7 @@ public class DownloadServlet extends HttpServlet {
         long total = file.length();
         String rangeHeader = req.getHeader("Range");
         if (rangeHeader == null) {
+            // No Range header: stream the whole file with a 200 response.
             resp.setStatus(HttpServletResponse.SC_OK);
             setContentLength(resp, total);
             copyFull(file, resp.getOutputStream());
@@ -86,11 +87,13 @@ public class DownloadServlet extends HttpServlet {
 
         Optional<DownloadRange> rangeOpt = DownloadRange.parse(rangeHeader, total);
         if (!rangeOpt.isPresent()) {
+            // The requested range is malformed or unsatisfiable (e.g. start beyond EOF).
             resp.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
             resp.setHeader("Content-Range", "bytes */" + total);
             return;
         }
         DownloadRange range = rangeOpt.get();
+        // Partial content: return only the requested byte range, enabling resumable downloads.
         resp.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);
         resp.setHeader("Content-Range",
                 "bytes " + range.getStart() + "-" + range.getEnd() + "/" + total);

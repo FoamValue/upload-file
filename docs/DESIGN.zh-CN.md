@@ -7,9 +7,9 @@
 ```
 upload-file (父 POM / 聚合器)
 ├── upload-file-core                        纯 Java，无框架依赖
-│     └── upload-file-servlet               Servlet 3.0+ 接入层
-│           └── upload-file-spring-boot-starter   Spring Boot 自动配置
-│                 └── example/upload-file-demo    演示用例
+└── upload-file-servlet               Servlet 3.0+ 接入层
+└── upload-file-spring-boot-starter   Spring Boot 自动配置
+└── example/upload-file-demo    演示用例
 ```
 
 ## 核心概念

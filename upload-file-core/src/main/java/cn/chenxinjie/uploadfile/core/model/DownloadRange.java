@@ -65,6 +65,7 @@ public class DownloadRange {
         long end;
         try {
             if (startStr.isEmpty()) {
+                // Suffix form "bytes=-N": take the last N bytes of the file.
                 long suffix = Long.parseLong(endStr);
                 if (suffix <= 0) {
                     return Optional.empty();
@@ -72,6 +73,7 @@ public class DownloadRange {
                 start = Math.max(0, total - suffix);
                 end = total - 1;
             } else {
+                // Explicit form "bytes=start-end" or open-ended "bytes=start-".
                 start = Long.parseLong(startStr);
                 end = endStr.isEmpty() ? total - 1 : Long.parseLong(endStr);
             }
@@ -82,7 +84,7 @@ public class DownloadRange {
             return Optional.empty();
         }
         if (end >= total) {
-            end = total - 1;
+            end = total - 1; // clamp the end to the last byte of the file
         }
         return Optional.of(new DownloadRange(start, end, total));
     }

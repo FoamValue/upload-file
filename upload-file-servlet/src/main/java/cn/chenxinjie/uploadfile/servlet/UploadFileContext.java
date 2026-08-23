@@ -45,6 +45,8 @@ public final class UploadFileContext {
     }
 
     public static UploadFileContext getOrCreate(ServletContext servletContext, ServletConfig config) {
+        // Lazily build the shared context once and cache it on the ServletContext, so the
+        // upload and download servlets always use the same store and directories.
         synchronized (servletContext) {
             UploadFileContext context = (UploadFileContext) servletContext.getAttribute(ATTRIBUTE_NAME);
             if (context == null) {

@@ -8,7 +8,7 @@ package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
-import cn.chenxinjie.uploadfile.core.util.Strings;
+import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
 import java.io.BufferedInputStream;
 import java.io.EOFException;
@@ -39,20 +39,22 @@ public class ResumableDownloadService {
      * Locates the merged complete file.
      */
     public Optional<File> resolveFile(String identifier) {
-        if (Strings.isBlank(identifier)) {
+        if (StringUtil.isBlank(identifier)) {
             return Optional.empty();
         }
         UploadTask task = taskStore.get(identifier).orElse(null);
         if (task == null) {
             return Optional.empty();
         }
-        if (Strings.isNotBlank(task.getFinalPath())) {
+        // Prefer the recorded final path, then fall back to the standard layout
+        // ({mergedFileDir}/{identifier}/{fileName}) for robustness.
+        if (StringUtil.isNotBlank(task.getFinalPath())) {
             File file = new File(task.getFinalPath());
             if (file.isFile()) {
                 return Optional.of(file);
             }
         }
-        if (task.isMerged() && Strings.isNotBlank(task.getFileName())) {
+        if (task.isMerged() && StringUtil.isNotBlank(task.getFileName())) {
             File file = new File(mergedFileDir, identifier + File.separator + task.getFileName());
             if (file.isFile()) {
                 return Optional.of(file);
@@ -66,7 +68,7 @@ public class ResumableDownloadService {
      */
     public String resolveFileName(String identifier) {
         UploadTask task = taskStore.get(identifier).orElse(null);
-        return task != null && Strings.isNotBlank(task.getFileName()) ? task.getFileName() : identifier;
+        return task != null && StringUtil.isNotBlank(task.getFileName()) ? task.getFileName() : identifier;
     }
 
     /**
@@ -76,10 +78,11 @@ public class ResumableDownloadService {
      */
     public long writeRange(File file, long start, long length, OutputStream out) throws IOException {
         try (InputStream in = new BufferedInputStream(new FileInputStream(file))) {
-            skipFully(in, start);
+            skipFully(in, start); // jump to the requested offset
             byte[] buffer = new byte[BUFFER_SIZE];
             long remaining = length;
             while (remaining > 0) {
+                // Copy exactly `length` bytes (the requested range) to the output stream.
                 int n = in.read(buffer, 0, (int) Math.min(buffer.length, remaining));
                 if (n < 0) {
                     break;
@@ -96,6 +99,7 @@ public class ResumableDownloadService {
         while (skipped < n) {
             long s = in.skip(n - skipped);
             if (s <= 0) {
+                // skip() may return 0; fall back to reading a single byte until the target offset is reached.
                 if (in.read() == -1) {
                     throw new EOFException("Unexpected end of file");
                 }

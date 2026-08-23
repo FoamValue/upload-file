@@ -6,10 +6,10 @@
 
 ```
 upload-file (parent POM / aggregator)
-├── upload-file-core                        pure Java, no framework dependencies
-│     └── upload-file-servlet               Servlet 3.0+ integration layer
-│           └── upload-file-spring-boot-starter   Spring Boot auto-configuration
-│                 └── example/upload-file-demo    demo application
+├── upload-file-core                   pure Java, no framework dependencies
+└── upload-file-servlet                Servlet 3.0+ integration layer
+└── upload-file-spring-boot-starter    Spring Boot auto-configuration
+└── example/upload-file-demo           demo application
 ```
 
 ## Core Concepts

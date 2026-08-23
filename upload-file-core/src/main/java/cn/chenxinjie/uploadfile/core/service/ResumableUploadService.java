@@ -14,7 +14,7 @@ import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
-import cn.chenxinjie.uploadfile.core.util.Strings;
+import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -62,6 +62,8 @@ public class ResumableUploadService {
     }
 
     private Object lockFor(String identifier) {
+        // Hash the identifier into a fixed-size bucket so concurrent uploads of the
+        // same file are serialized without allocating an unbounded number of locks.
         return locks[(identifier.hashCode() & 0x7fffffff) % LOCK_COUNT];
     }
 
@@ -77,7 +79,7 @@ public class ResumableUploadService {
     public UploadProgress uploadChunk(ChunkUploadRequest request, InputStream in) throws IOException {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(in, "inputStream");
-        String identifier = Strings.requireSafeIdentifier(request.getIdentifier());
+        String identifier = StringUtil.requireSafeIdentifier(request.getIdentifier());
         int chunkIndex = request.getChunkIndex();
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
@@ -91,7 +93,8 @@ public class ResumableUploadService {
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
-                Strings.requireSafeFileName(request.getFileName());
+                // First chunk of this identifier: create the task record before storing any chunk.
+                StringUtil.requireSafeFileName(request.getFileName());
                 task = UploadTask.from(request);
                 task.setChunkSize(chunkSize);
                 taskStore.save(task);
@@ -100,11 +103,15 @@ public class ResumableUploadService {
                 throw new IllegalStateException("Task already merged, cannot upload chunks: " + identifier);
             }
             if (!task.getUploadedChunks().contains(chunkIndex)) {
+                // Chunk not yet uploaded: store it, optionally verify it, then record the progress.
                 chunkStorage.saveChunk(identifier, chunkIndex, in);
-                if (verifyChecksum && Strings.isNotBlank(request.getChunkMd5())) {
+                if (verifyChecksum && StringUtil.isNotBlank(request.getChunkMd5())) {
+                    // Recompute the MD5 of the persisted chunk and compare it with the expected
+                    // value, so a corrupted transfer is rejected before the progress is recorded.
                     File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
                     String actual = ChecksumUtil.md5(saved);
                     if (!actual.equalsIgnoreCase(request.getChunkMd5().trim())) {
+                        // Only reject the offending chunk; keep the other uploaded chunks intact.
                         chunkStorage.deleteChunk(identifier, chunkIndex);
                         throw new ChecksumMismatchException(
                                 "Chunk " + chunkIndex + " MD5 mismatch, expected "
@@ -123,7 +130,7 @@ public class ResumableUploadService {
      * so the client can treat it as a brand-new upload.
      */
     public UploadProgress getProgress(String identifier) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? UploadProgress.empty(identifier) : UploadProgress.from(task);
     }
@@ -145,7 +152,7 @@ public class ResumableUploadService {
      * @throws NoSuchElementException the task does not exist
      */
     public UploadResult merge(String identifier) throws IOException {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
@@ -156,6 +163,7 @@ public class ResumableUploadService {
             }
             int missing = 0;
             for (int i = 0; i < task.getChunkTotal(); i++) {
+                // Every chunk must be on disk before merging, otherwise the merged file would be corrupt.
                 if (!chunkStorage.chunkExists(identifier, i)) {
                     missing++;
                 }
@@ -163,10 +171,11 @@ public class ResumableUploadService {
             if (missing > 0) {
                 throw new IllegalStateException("Missing " + missing + " chunk(s) not yet uploaded: " + identifier);
             }
-            Strings.requireSafeFileName(task.getFileName());
+            StringUtil.requireSafeFileName(task.getFileName());
             Path dir = mergedFileDir.toPath().resolve(identifier);
             Files.createDirectories(dir);
             Path out = dir.resolve(task.getFileName());
+            // Concatenate the chunks in index order to rebuild the original file.
             try (OutputStream os = new BufferedOutputStream(Files.newOutputStream(out))) {
                 for (int i = 0; i < task.getChunkTotal(); i++) {
                     File chunkFile = chunkStorage.getChunkFile(identifier, i);
@@ -178,10 +187,12 @@ public class ResumableUploadService {
             }
             long size = Files.size(out);
             if (task.getFileSize() > 0 && size != task.getFileSize()) {
+                // Guard against data loss: if the size does not match the declared one, discard the result.
                 Files.deleteIfExists(out);
                 throw new IllegalStateException("Merged file size mismatch, expected "
                         + task.getFileSize() + ", actual " + size + " (" + identifier + ")");
             }
+            // Merge succeeded: clean up the chunks and mark the task as merged for later downloads.
             chunkStorage.deleteChunks(identifier);
             task.setMerged(true);
             task.setFinalPath(out.toAbsolutePath().toString());

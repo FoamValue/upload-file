@@ -66,6 +66,7 @@ public class UploadServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        // action=merge triggers the merge endpoint; anything else is treated as a chunk upload.
         if ("merge".equals(req.getParameter("action"))) {
             doMerge(req, resp);
         } else {
@@ -74,6 +75,7 @@ public class UploadServlet extends HttpServlet {
     }
 
     private void doChunkUpload(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        // Build the chunk request from the multipart form fields; the chunk bytes are read below.
         ChunkUploadRequest chunkRequest = new ChunkUploadRequest();
         chunkRequest.setIdentifier(param(req, "identifier"));
         chunkRequest.setFileName(param(req, "fileName"));
@@ -83,6 +85,7 @@ public class UploadServlet extends HttpServlet {
         chunkRequest.setChunkIndex(intParam(req, "chunkIndex", -1));
         chunkRequest.setChunkMd5(param(req, "chunkMd5"));
 
+        // The request must be a multipart request and contain a part named "file".
         Part part = null;
         try {
             part = req.getPart("file");
@@ -94,6 +97,7 @@ public class UploadServlet extends HttpServlet {
             writeJson(resp, 400, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
             return;
         }
+        // Stream the chunk body straight into the storage layer, then return the current progress.
         try (InputStream in = part.getInputStream()) {
             UploadProgress progress = uploadService.uploadChunk(chunkRequest, in);
             writeJson(resp, 200, gson.toJson(progress));

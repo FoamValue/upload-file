@@ -6,7 +6,7 @@
 
 package cn.chenxinjie.uploadfile.core.storage;
 
-import cn.chenxinjie.uploadfile.core.util.Strings;
+import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
 import java.io.File;
 import java.io.IOException;
@@ -59,15 +59,18 @@ public class LocalFileChunkStorage implements ChunkStorage {
 
     @Override
     public void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         Path target = chunkPath(identifier, chunkIndex);
         Files.createDirectories(target.getParent());
+        // Write to a temp file in the same directory first, then atomically rename it into place.
+        // This guarantees that an interrupted upload never leaves a half-written chunk behind.
         Path tmp = Files.createTempFile(target.getParent(), ".upload-", SUFFIX);
         try {
             Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
             try {
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
+                // Some file systems do not support atomic moves; fall back to a plain rename.
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
         } finally {
@@ -77,19 +80,19 @@ public class LocalFileChunkStorage implements ChunkStorage {
 
     @Override
     public boolean chunkExists(String identifier, int chunkIndex) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         return Files.isRegularFile(chunkPath(identifier, chunkIndex));
     }
 
     @Override
     public File getChunkFile(String identifier, int chunkIndex) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         return chunkPath(identifier, chunkIndex).toFile();
     }
 
     @Override
     public List<Integer> listChunks(String identifier) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         List<Integer> result = new ArrayList<>();
         Path dir = chunkDir(identifier);
         if (!Files.isDirectory(dir)) {
@@ -97,6 +100,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
         }
         try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir, "*" + SUFFIX)) {
             for (Path path : ds) {
+                // Derive the chunk index from the file name (e.g. "3.part" -> 3).
                 String name = path.getFileName().toString();
                 String index = name.substring(0, name.length() - SUFFIX.length());
                 try {
@@ -114,7 +118,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
 
     @Override
     public void deleteChunk(String identifier, int chunkIndex) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         try {
             Files.deleteIfExists(chunkPath(identifier, chunkIndex));
         } catch (IOException e) {
@@ -124,7 +128,7 @@ public class LocalFileChunkStorage implements ChunkStorage {
 
     @Override
     public void deleteChunks(String identifier) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         Path dir = chunkDir(identifier);
         if (!Files.exists(dir)) {
             return;

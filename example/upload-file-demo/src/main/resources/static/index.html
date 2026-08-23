@@ -100,10 +100,10 @@
             let offset = 0;
             reader.onerror = reject;
             reader.onload = e => {
-                spark.append(e.target.result);
+                spark.append(e.target.result); // feed this slice into the incremental MD5
                 offset += e.target.result.byteLength;
                 if (offset < blob.size) {
-                    loadNext();
+                    loadNext(); // keep reading until the whole file has been processed
                 } else {
                     resolve(spark.end());
                 }
@@ -139,6 +139,7 @@
         $('btnResume').disabled = true;
         $('btnPause').disabled = false;
         if (resume) {
+            // Ask the server which chunks already exist and skip them (resumable upload).
             log('Querying server progress to skip already-uploaded chunks...');
             const p = await queryProgress();
             uploadedSet = new Set(p.uploadedChunks || []);
@@ -150,7 +151,7 @@
                 break;
             }
             if (uploadedSet.has(currentChunk)) {
-                currentChunk++;
+                currentChunk++; // chunk already uploaded on a previous attempt; skip it
                 continue;
             }
             try {
@@ -222,6 +223,8 @@
     async function downloadWithResume() {
         try {
             const mid = Math.floor(file.size / 2);
+            // Simulate a resumable download: fetch the first half via Range, "interrupt",
+            // then resume from the breakpoint with a second Range request.
             log('Segment 1: requesting Range bytes=0-' + (mid - 1) + ' ...');
             const b1 = await downloadRange(0, mid - 1);
             log('Segment 1 done, ' + formatSize(b1.size) + ' (simulating network interruption, resuming shortly)');

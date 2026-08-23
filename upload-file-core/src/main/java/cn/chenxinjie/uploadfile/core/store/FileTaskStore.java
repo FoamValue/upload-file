@@ -7,7 +7,7 @@
 package cn.chenxinjie.uploadfile.core.store;
 
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
-import cn.chenxinjie.uploadfile.core.util.Strings;
+import cn.chenxinjie.uploadfile.core.util.StringUtil;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -63,7 +63,7 @@ public class FileTaskStore implements TaskStore {
         if (identifier == null || identifier.isEmpty()) {
             return Optional.empty();
         }
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         UploadTask cached = cache.get(identifier);
         if (cached != null) {
             return Optional.of(cached);
@@ -90,11 +90,13 @@ public class FileTaskStore implements TaskStore {
 
     @Override
     public void save(UploadTask task) {
-        Strings.requireSafeIdentifier(task.getIdentifier());
+        StringUtil.requireSafeIdentifier(task.getIdentifier());
         Path path = taskPath(task.getIdentifier());
         Path tmp = null;
         try {
             Files.createDirectories(rootDir);
+            // Serialize to a temp file and atomically rename it into place, so a crash during
+            // the write never corrupts the previous metadata file.
             byte[] bytes = gson.toJson(task).getBytes(StandardCharsets.UTF_8);
             tmp = Files.createTempFile(rootDir, ".meta-", SUFFIX);
             Files.write(tmp, bytes);
@@ -103,6 +105,7 @@ public class FileTaskStore implements TaskStore {
             } catch (AtomicMoveNotSupportedException e) {
                 Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
             }
+            // Keep the in-memory cache in sync so later reads hit the cache instead of the disk.
             cache.put(task.getIdentifier(), task);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to save task metadata: " + path, e);
@@ -119,7 +122,7 @@ public class FileTaskStore implements TaskStore {
 
     @Override
     public boolean remove(String identifier) {
-        Strings.requireSafeIdentifier(identifier);
+        StringUtil.requireSafeIdentifier(identifier);
         cache.remove(identifier);
         try {
             return Files.deleteIfExists(taskPath(identifier));
