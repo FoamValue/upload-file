@@ -4,10 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.1`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
+
+> 🚧 状态：**Pre-release** `1.0.0-rc.1` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -38,7 +40,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-rc.1</version>
 </dependency>
 ```
 
@@ -129,7 +131,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.1.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
@@ -145,6 +147,7 @@ java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 
 - [架构设计](docs/DESIGN.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
+- [更新日志](CHANGELOG.zh-CN.md)
 
 ## 许可证
 

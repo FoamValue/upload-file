@@ -13,13 +13,18 @@
     <parent>
         <groupId>cn.chenxinjie</groupId>
         <artifactId>upload-file</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.0-rc.1</version>
         <relativePath>../..</relativePath>
     </parent>
 
     <artifactId>upload-file-demo</artifactId>
     <name>upload-file-demo</name>
     <description>演示用例：Spring Boot 大文件分片上传 / 断点续传 Demo（含前端页面）</description>
+
+    <properties>
+        <!-- 演示用例不发布到中央仓库 -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+    </properties>
 
     <dependencies>
         <dependency>

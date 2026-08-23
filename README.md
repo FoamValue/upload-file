@@ -4,10 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.1` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
+
+> 🚧 Status: **Pre-release** `1.0.0-rc.1` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -38,7 +40,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.0-rc.1</version>
 </dependency>
 ```
 
@@ -128,7 +130,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.1.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
@@ -143,6 +145,7 @@ Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume
 
 - [Design](docs/DESIGN.md)
 - [HTTP API reference](docs/API.md)
+- [Changelog](CHANGELOG.md)
 
 ## License
 

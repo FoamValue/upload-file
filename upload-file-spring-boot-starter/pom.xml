@@ -13,12 +13,19 @@
     <parent>
         <groupId>cn.chenxinjie</groupId>
         <artifactId>upload-file</artifactId>
-        <version>1.0.0</version>
+        <version>1.0.0-rc.1</version>
     </parent>
 
     <artifactId>upload-file-spring-boot-starter</artifactId>
     <name>upload-file-spring-boot-starter</name>
     <description>Spring Boot 2.x 自动配置：自动装配核心服务并注册上传/下载 Servlet</description>
+
+    <url>https://github.com/FoamValue/upload-file</url>
+    <scm>
+        <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>
+        <developerConnection>scm:git:git@github.com:FoamValue/upload-file.git</developerConnection>
+        <url>https://github.com/FoamValue/upload-file</url>
+    </scm>
 
     <dependencies>
         <dependency>
@@ -51,4 +58,17 @@
             <optional>true</optional>
         </dependency>
     </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>

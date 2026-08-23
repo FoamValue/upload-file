@@ -3,6 +3,9 @@ target/
 *.jar
 *.war
 
+# flatten-maven-plugin 生成物
+.flattened-pom.xml
+
 .idea/
 *.iml
 .vscode/
