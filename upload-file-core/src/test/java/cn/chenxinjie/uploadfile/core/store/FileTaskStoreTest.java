@@ -16,6 +16,7 @@ import java.util.TreeSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class FileTaskStoreTest {
@@ -81,5 +82,23 @@ public class FileTaskStoreTest {
         store.save(sampleTask("d1"));
         store.save(sampleTask("d2"));
         assertEquals(2, store.list().size());
+    }
+
+    @Test
+    public void listEmptyStoreReturnsEmptyList() {
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertTrue(store.list().isEmpty());
+    }
+
+    @Test
+    public void getInvalidIdentifierIsRejected() {
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertThrows(IllegalArgumentException.class, () -> store.get("../escape"));
+    }
+
+    @Test
+    public void saveInvalidIdentifierIsRejected() {
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertThrows(IllegalArgumentException.class, () -> store.save(sampleTask("../escape")));
     }
 }

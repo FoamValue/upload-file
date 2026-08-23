@@ -68,5 +68,38 @@ public class DownloadRangeTest {
         assertFalse(DownloadRange.parse(null, 1000).isPresent());
         assertFalse(DownloadRange.parse("bytes=abc", 1000).isPresent());
         assertFalse(DownloadRange.parse("items=0-1", 1000).isPresent());
+        assertFalse(DownloadRange.parse("bytes=", 1000).isPresent());
+        assertFalse(DownloadRange.parse("bytes=-", 1000).isPresent());
+        assertFalse(DownloadRange.parse("bytes=0--1", 1000).isPresent());
+    }
+
+    @Test
+    public void emptyFileReturnsEmpty() {
+        assertFalse(DownloadRange.parse("bytes=0-", 0).isPresent());
+    }
+
+    @Test
+    public void singleByteRange() {
+        Optional<DownloadRange> r = DownloadRange.parse("bytes=0-0", 1000);
+        assertTrue(r.isPresent());
+        assertEquals(0, r.get().getStart());
+        assertEquals(0, r.get().getEnd());
+        assertEquals(1, r.get().getContentLength());
+    }
+
+    @Test
+    public void multipleRangesUsesFirst() {
+        Optional<DownloadRange> r = DownloadRange.parse("bytes=0-9,100-199", 1000);
+        assertTrue(r.isPresent());
+        assertEquals(0, r.get().getStart());
+        assertEquals(9, r.get().getEnd());
+    }
+
+    @Test
+    public void whitespaceIsTolerated() {
+        Optional<DownloadRange> r = DownloadRange.parse("bytes= 10 - 20 ", 1000);
+        assertTrue(r.isPresent());
+        assertEquals(10, r.get().getStart());
+        assertEquals(20, r.get().getEnd());
     }
 }

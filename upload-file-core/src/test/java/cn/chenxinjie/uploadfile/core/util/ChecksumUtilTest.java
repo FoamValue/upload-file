@@ -6,13 +6,21 @@
 
 package cn.chenxinjie.uploadfile.core.util;
 
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 
+import java.io.File;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertThrows;
 
 public class ChecksumUtilTest {
+
+    @Rule
+    public TemporaryFolder folder = new TemporaryFolder();
 
     @Test
     public void md5OfBytes() {
@@ -39,5 +47,28 @@ public class ChecksumUtilTest {
         String b = ChecksumUtil.md5(s.getBytes(StandardCharsets.UTF_8));
         assertEquals(a, b);
         assertEquals(a.toLowerCase(), a);
+    }
+
+    @Test
+    public void checksumsOfFileMatchByteArray() throws Exception {
+        File file = new File(folder.getRoot(), "data.txt");
+        Files.write(file.toPath(), "abc".getBytes(StandardCharsets.UTF_8));
+
+        assertEquals(ChecksumUtil.md5("abc".getBytes(StandardCharsets.UTF_8)), ChecksumUtil.md5(file));
+        assertEquals(ChecksumUtil.sha1("abc".getBytes(StandardCharsets.UTF_8)), ChecksumUtil.sha1(file));
+        assertEquals(ChecksumUtil.sha256("abc".getBytes(StandardCharsets.UTF_8)), ChecksumUtil.sha256(file));
+    }
+
+    @Test
+    public void genericChecksumOfFile() throws Exception {
+        File file = new File(folder.getRoot(), "data.txt");
+        Files.write(file.toPath(), "abc".getBytes(StandardCharsets.UTF_8));
+        assertEquals(ChecksumUtil.md5(file), ChecksumUtil.checksum("MD5", file));
+    }
+
+    @Test
+    public void unsupportedAlgorithmThrows() {
+        assertThrows(IllegalStateException.class,
+                () -> ChecksumUtil.checksum("NOPE", "abc".getBytes(StandardCharsets.UTF_8)));
     }
 }

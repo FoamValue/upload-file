@@ -62,4 +62,23 @@ public class LocalFileChunkStorageTest {
         storage.deleteChunks("file1");
         assertFalse(storage.chunkExists("file1", 1));
     }
+
+    @Test
+    public void deleteNonExistentChunkIsNoOp() {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        storage.deleteChunk("file1", 0); // must not throw
+        assertFalse(storage.chunkExists("file1", 0));
+    }
+
+    @Test
+    public void deleteChunksOnMissingDirIsNoOp() {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        storage.deleteChunks("never-created"); // must not throw
+    }
+
+    @Test
+    public void listChunksUnknownIdentifierIsEmpty() {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        assertTrue(storage.listChunks("nope").isEmpty());
+    }
 }

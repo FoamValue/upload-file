@@ -198,4 +198,27 @@ public class ResumableUploadServiceTest {
     public void mergeUnknownIdentifierFails() {
         assertThrows(java.util.NoSuchElementException.class, () -> service.merge("nope"));
     }
+
+    @Test
+    public void mergeIsIdempotent() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("f11", 0, 1), new ByteArrayInputStream(chunk));
+        UploadResult first = service.merge("f11");
+        UploadResult second = service.merge("f11");
+
+        assertTrue(first.isSuccess());
+        assertTrue(second.isSuccess());
+        assertEquals(first.getFinalPath(), second.getFinalPath());
+        assertEquals(first.getFinalFileSize(), second.getFinalFileSize());
+    }
+
+    @Test
+    public void uploadAfterMergeIsRejected() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("f12", 0, 1), new ByteArrayInputStream(chunk));
+        service.merge("f12");
+
+        assertThrows(IllegalStateException.class,
+                () -> service.uploadChunk(request("f12", 0, 1), new ByteArrayInputStream(chunk)));
+    }
 }
