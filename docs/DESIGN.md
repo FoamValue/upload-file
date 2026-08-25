@@ -96,3 +96,7 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
 - Chunks and metadata are written via "temp file + atomic rename", avoiding half-written
   files on interruption.
 - Re-uploading the same chunk is idempotent (skipped once recorded).
+
+## Future Optimization Directions
+
+See [Future Optimization Directions](ROADMAP.md) (roadmap with core directions and priority grouping).
