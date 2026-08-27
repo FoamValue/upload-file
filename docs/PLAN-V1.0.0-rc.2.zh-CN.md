@@ -1,12 +1,12 @@
-# V1.0.0 任务开发计划
+# V1.0.0-rc.2 任务开发计划
 
-> 🇺🇸 [English](PLAN-V1.0.0.md)
+> 🇺🇸 [English](PLAN-V1.0.0-rc.2.md)
 >
-> 对应 [未来优化方向](ROADMAP.zh-CN.md) 中「完整优化列表」的 P0 项，目标版本 **V1.0.0**。
+> 对应 [未来优化方向](ROADMAP.zh-CN.md) 中「完整优化列表」的 P0 项，目标版本 **V1.0.0-rc.2**。
 
 ## 一、目标与范围
 
-V1.0.0 实现当前优化计划中的 5 项 P0（基础健壮性），P1/P2 项排期到后续版本：
+V1.0.0-rc.2 实现当前优化计划中的 5 项 P0（基础健壮性），P1/P2 项排期到后续版本：
 
 | 编号 | P0 项 | 说明 |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ upload-file (父 POM / 聚合器)
 - `README(.zh-CN).md`：新配置项、新模块、异步合并用法；
 - `docs/API(.zh-CN).md`：`mergeAsync` / `mergeStatus` 接口说明；
 - `docs/DESIGN(.zh-CN).md`：更新组件职责、目录布局（含临时文件与清理）；
-- `docs/ROADMAP(.zh-CN).md`：P0 上线版本标记为 V1.0.0；
+- `docs/ROADMAP(.zh-CN).md`：P0 上线版本标记为 V1.0.0-rc.2；
 - 示例 `application.yml` / servlet `web.xml` 补充新配置示例。
 
 ## 八、里程碑与发布
@@ -126,4 +126,4 @@ upload-file (父 POM / 聚合器)
 2. **M2**：T1+T3 清理治理（共享 `StorageCleanupService` 与调度器）；
 3. **M3**：T4 合并异步化（依赖 merge 稳定后实施）；
 4. **M4**：T5 元数据扩展存储（新模块 + starter 装配，可与 M2/M3 并行）；
-5. **M5**：文档/示例/测试补齐，版本 `1.0.0-rc.1 → 1.0.0`，按既有 release profile 发布 Maven Central。
+5. **M5**：文档/示例/测试补齐，版本 `1.0.0-rc.2 → 1.0.0`，按既有 release profile 发布 Maven Central。

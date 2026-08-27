@@ -9,8 +9,35 @@
 
 ## [Unreleased]
 
-- 计划：补充自定义 `TaskStore` / `ChunkStorage` 实现（Redis / OSS / S3）的文档与示例。
 - 计划：Spring Boot 3.x（`jakarta.servlet`）适配。
+
+## [1.0.0-rc.2] - 2026-08-26
+
+**Pre-release。** 第二个候选版本。新增的治理/健壮性特性默认关闭，从 `rc.1` 直接升级即可保持既有行为。
+
+### 新增
+
+- **合并原子化（T2）**：merge 先写同目录临时文件，可选 fsync，再以 `ATOMIC_MOVE` 改名落位；中途失败不再残留坏文件
+- **过期任务清理（T1）**：`StorageCleanupService` 删除超过 `cleanup.task-ttl` 未更新的未完成任务（含分片）；`TTL=0` 表示永不清理
+- **孤儿数据治理（T3）**：`ChunkStorage.listIdentifiers()` 默认方法；开启后扫描无任务记录的 chunk / merged 目录并清理
+- **合并异步化（T4）**：`submitMerge` / `getMergeStatus`，`action=mergeAsync`（HTTP 202）与 `action=mergeStatus`；状态机 `NONE → PENDING → RUNNING → SUCCEEDED/FAILED`；合并进行/完成时拒收新分片
+- **可插拔元数据存储（T5）**：新增可选模块 `upload-file-store-jdbc`（`JdbcTaskStore`）与 `upload-file-store-redis`（`RedisTaskStore`）；`upload-file.metadata-store`（`auto|memory|file|jdbc|redis`）
+- 新增配置项：`merge.fsync`、`merge.atomic`、`cleanup.enabled`、`cleanup.run-on-startup`、`cleanup.interval`、`cleanup.task-ttl`、`cleanup.orphan-enabled`、`async-merge.enabled`、`async-merge.thread-pool-size`、`metadata-store`、`jdbc.table-name`、`jdbc.init-sql`、`redis.host`、`redis.port`、`redis.password`、`redis.key-prefix`、`redis.ttl-seconds`；Servlet 场景提供同名 init-param
+
+### 变更
+
+- `UploadTask` 新增 `mergeState` / `mergeError` / `mergeStartedAt`；旧 JSON 元数据按 `NONE` 处理（向后兼容）
+- merge 失败时删除临时文件；残留临时文件由孤儿清理（T3）回收
+- `metadata-store=auto` 完全复刻 rc.1 行为（有 `metadata-dir` → file，否则 memory）
+
+### 兼容性
+
+- 所有新特性默认关闭（`cleanup.*` 与 `async-merge.enabled` 默认 `false`），裸升级即可保持 rc.1 生产行为
+- 既有接口（`merge`、`progress`）与同步 `merge()` 入口不变；现有 `ChunkStorage` 实现无需改动
+
+### 依赖
+
+- 新增可选：`upload-file-store-jdbc`、`upload-file-store-redis`（Jedis 4.4.0）；H2 2.2.224（仅测试）
 
 ## [1.0.0-rc.1] - 2026-08-23
 

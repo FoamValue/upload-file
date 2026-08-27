@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (c) 2026 chenxinjie
+
+  SPDX-License-Identifier: MIT
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.chenxinjie</groupId>
+        <artifactId>upload-file</artifactId>
+        <version>1.0.0-rc.2</version>
+    </parent>
+
+    <artifactId>upload-file-store-jdbc</artifactId>
+    <name>upload-file-store-jdbc</name>
+    <description>Optional metadata store plugin: TaskStore backed by a JDBC datasource</description>
+
+    <url>https://github.com/FoamValue/upload-file</url>
+    <scm>
+        <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>
+        <developerConnection>scm:git:git@github.com:FoamValue/upload-file.git</developerConnection>
+        <url>https://github.com/FoamValue/upload-file</url>
+    </scm>
+
+    <dependencies>
+        <dependency>
+            <groupId>cn.chenxinjie</groupId>
+            <artifactId>upload-file-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

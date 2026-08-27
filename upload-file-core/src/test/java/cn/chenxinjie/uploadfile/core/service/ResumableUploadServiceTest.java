@@ -8,11 +8,13 @@ package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
+import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
+import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
 import org.junit.Before;
 import org.junit.Rule;
@@ -22,13 +24,20 @@ import org.junit.rules.TemporaryFolder;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Arrays;
+import java.util.Collection;
+import java.util.Optional;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
@@ -220,5 +229,297 @@ public class ResumableUploadServiceTest {
 
         assertThrows(IllegalStateException.class,
                 () -> service.uploadChunk(request("f12", 0, 1), new ByteArrayInputStream(chunk)));
+    }
+
+    @Test
+    public void atomicMergeLeavesNoTempFileOnSuccess() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("a1", 0, 1), new ByteArrayInputStream(chunk));
+        UploadResult result = service.merge("a1");
+
+        assertTrue(result.isSuccess());
+        File taskDir = new File(mergedDir, "a1");
+        File[] files = taskDir.listFiles();
+        assertNotNull(files);
+        for (File f : files) {
+            assertFalse(f.getName().contains(".merge-"));
+        }
+    }
+
+    @Test
+    public void mergeFailureCleansUpTempFile() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("a2", 0, 1), new ByteArrayInputStream(chunk));
+
+        UploadTask task = service.getTaskStore().get("a2").get();
+        task.setFileSize(CHUNK_SIZE + 1); // declare a wrong size to force a rollback
+        service.getTaskStore().save(task);
+
+        assertThrows(IllegalStateException.class, () -> service.merge("a2"));
+
+        File taskDir = new File(mergedDir, "a2");
+        assertTrue(taskDir.isDirectory());
+        File[] files = taskDir.listFiles();
+        assertNotNull(files);
+        assertEquals(0, files.length);
+        assertFalse(service.getProgress("a2").isMerged());
+    }
+
+    @Test
+    public void mergeWithoutAtomicWritesDirectly() throws Exception {
+        // merge.atomic=false preserves the rc.1 direct-write behavior.
+        ResumableUploadService legacy = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta2").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks2").toPath()),
+                new File(folder.getRoot(), "files2"),
+                true, true, false);
+        byte[] chunk = new byte[CHUNK_SIZE];
+        legacy.uploadChunk(request("b1", 0, 1), new ByteArrayInputStream(chunk));
+        UploadResult result = legacy.merge("b1");
+        assertTrue(result.isSuccess());
+        assertTrue(new File(result.getFinalPath()).isFile());
+    }
+
+    @Test
+    public void submitMergeWithoutAsyncFails() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("c1", 0, 1), new ByteArrayInputStream(chunk));
+        assertThrows(IllegalStateException.class, () -> service.submitMerge("c1"));
+    }
+
+    @Test
+    public void asyncMergeReachesSucceeded() throws Exception {
+        ResumableUploadService svc = asyncService();
+        svc.uploadChunk(request("d1", 0, 1), new ByteArrayInputStream(new byte[CHUNK_SIZE]));
+
+        MergeStatus submitted = svc.submitMerge("d1");
+        assertEquals(UploadTask.MERGE_STATE_PENDING, submitted.getState());
+
+        MergeStatus terminal = awaitTerminal(svc, "d1");
+        assertEquals(UploadTask.MERGE_STATE_SUCCEEDED, terminal.getState());
+        assertTrue(terminal.isMerged());
+    }
+
+    @Test
+    public void asyncMergeFailedCarriesError() throws Exception {
+        ResumableUploadService svc = asyncService();
+        // Only 1 of 2 chunks uploaded, so the merge must fail.
+        svc.uploadChunk(request("d2", 0, 2), new ByteArrayInputStream(new byte[CHUNK_SIZE]));
+
+        svc.submitMerge("d2");
+        MergeStatus terminal = awaitTerminal(svc, "d2");
+        assertEquals(UploadTask.MERGE_STATE_FAILED, terminal.getState());
+        assertTrue(terminal.getMessage() != null && !terminal.getMessage().isEmpty());
+        assertFalse(terminal.isMerged());
+    }
+
+    @Test
+    public void uploadChunkRejectedWhileAsyncMergeInFlight() throws Exception {
+        ResumableUploadService svc = asyncService();
+        byte[] chunk = new byte[CHUNK_SIZE];
+        svc.uploadChunk(request("d3", 0, 1), new ByteArrayInputStream(chunk));
+        svc.submitMerge("d3");
+
+        // PENDING/RUNNING/SUCCEEDED all reject new chunks once the merge was submitted.
+        assertThrows(IllegalStateException.class,
+                () -> svc.uploadChunk(request("d3", 0, 1), new ByteArrayInputStream(chunk)));
+    }
+
+    @Test
+    public void repeatedAsyncSubmitIsIdempotent() throws Exception {
+        ResumableUploadService svc = asyncService();
+        byte[] chunk = new byte[CHUNK_SIZE];
+        svc.uploadChunk(request("d4", 0, 1), new ByteArrayInputStream(chunk));
+
+        svc.submitMerge("d4");
+        MergeStatus again = svc.submitMerge("d4"); // must not re-submit / throw
+        assertEquals(UploadTask.MERGE_STATE_PENDING, again.getState());
+
+        MergeStatus terminal = awaitTerminal(svc, "d4");
+        assertEquals(UploadTask.MERGE_STATE_SUCCEEDED, terminal.getState());
+    }
+
+    @Test
+    public void getMergeStatusForUnknownIdentifierIsNone() {
+        assertEquals(UploadTask.MERGE_STATE_NONE, service.getMergeStatus("nope").getState());
+    }
+
+    @Test
+    public void getMergeStatusForSynchronouslyMergedTaskIsSucceeded() throws Exception {
+        byte[] chunk = new byte[CHUNK_SIZE];
+        service.uploadChunk(request("e1", 0, 1), new ByteArrayInputStream(chunk));
+        service.merge("e1");
+
+        MergeStatus status = service.getMergeStatus("e1");
+        assertEquals(UploadTask.MERGE_STATE_SUCCEEDED, status.getState());
+        assertTrue(status.isMerged());
+    }
+
+    @Test
+    public void uploadChunkAllowedAfterAsyncFailure() throws Exception {
+        ResumableUploadService svc = asyncService();
+        svc.uploadChunk(request("d5", 0, 2), new ByteArrayInputStream(new byte[CHUNK_SIZE])); // 1 of 2
+        svc.submitMerge("d5");
+        assertEquals(UploadTask.MERGE_STATE_FAILED, awaitTerminal(svc, "d5").getState());
+
+        // After FAILED the missing chunk can still be uploaded and merged again.
+        svc.uploadChunk(request("d5", 1, 2), new ByteArrayInputStream(new byte[CHUNK_SIZE]));
+        assertEquals(2, svc.getProgress("d5").getUploadedCount());
+
+        svc.submitMerge("d5");
+        assertEquals(UploadTask.MERGE_STATE_SUCCEEDED, awaitTerminal(svc, "d5").getState());
+    }
+
+    @Test
+    public void atomicMergeWithoutFsyncSucceeds() throws Exception {
+        ResumableUploadService noFsync = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta4").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks4").toPath()),
+                new File(folder.getRoot(), "files4"),
+                true, false, true);
+        byte[] chunk = new byte[CHUNK_SIZE];
+        noFsync.uploadChunk(request("e2", 0, 1), new ByteArrayInputStream(chunk));
+        UploadResult result = noFsync.merge("e2");
+        assertTrue(result.isSuccess());
+        assertTrue(new File(result.getFinalPath()).isFile());
+    }
+
+    @Test
+    public void mergeKeepsChunksWhenTaskSaveFails() throws Exception {
+        // Regression: if the metadata save fails after the file is merged, the chunks must NOT
+        // have been deleted and the PERSISTED task must NOT be marked merged, so the task stays
+        // recoverable after a restart (a retried merge can still succeed from the chunks).
+        File metaDir = new File(folder.getRoot(), "meta-fail");
+        LocalFileChunkStorage chunks = new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-fail").toPath());
+        SaveFailingStore failing = new SaveFailingStore(new FileTaskStore(metaDir.toPath()));
+        ResumableUploadService svc = new ResumableUploadService(
+                failing, chunks, new File(folder.getRoot(), "files-fail"));
+
+        byte[] chunk = new byte[CHUNK_SIZE];
+        svc.uploadChunk(request("fail1", 0, 1), new ByteArrayInputStream(chunk));
+        failing.failNextSave = true;
+
+        assertThrows(UncheckedIOException.class, () -> svc.merge("fail1"));
+
+        // The durable metadata (read from disk, bypassing the in-memory cache) is not merged
+        // and the chunks are still on disk.
+        FileTaskStore fresh = new FileTaskStore(metaDir.toPath());
+        assertFalse(fresh.get("fail1").get().isMerged());
+        assertTrue(chunks.chunkExists("fail1", 0));
+
+        // Once the failure clears, a retried merge succeeds from the remaining chunks.
+        failing.failNextSave = false;
+        ResumableUploadService retried = new ResumableUploadService(
+                new FileTaskStore(metaDir.toPath()), chunks, new File(folder.getRoot(), "files-fail"));
+        UploadResult result = retried.merge("fail1");
+        assertTrue(result.isSuccess());
+    }
+
+    @Test
+    public void oversizedChunkExceedingMaxChunkBytesRejected() throws Exception {
+        LocalFileChunkStorage chunks = new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-size").toPath());
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-size").toPath()),
+                chunks,
+                new File(folder.getRoot(), "files-size"));
+        svc.setMaxChunkBytes(4);
+
+        ChunkUploadRequest req = request("size1", 0, 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.uploadChunk(req, new ByteArrayInputStream("hello-chunk-too-big".getBytes(StandardCharsets.UTF_8))));
+
+        // No progress recorded and no chunk file left behind.
+        assertEquals(0, svc.getProgress("size1").getUploadedCount());
+        assertFalse(svc.isChunkUploaded("size1", 0));
+        assertFalse(chunks.chunkExists("size1", 0));
+    }
+
+    @Test
+    public void chunkWithinMaxChunkBytesAccepted() throws Exception {
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-size2").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-size2").toPath()),
+                new File(folder.getRoot(), "files-size2"));
+        svc.setMaxChunkBytes(16);
+
+        UploadProgress p = svc.uploadChunk(request("size2", 0, 1),
+                new ByteArrayInputStream("small".getBytes(StandardCharsets.UTF_8)));
+        assertEquals(1, p.getUploadedCount());
+    }
+
+    @Test
+    public void submitMergeRollsBackWhenExecutorRejected() throws Exception {
+        ResumableUploadService svc = asyncService();
+        byte[] chunk = new byte[CHUNK_SIZE];
+        svc.uploadChunk(request("d6", 0, 1), new ByteArrayInputStream(chunk));
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        svc.setAsyncExecutor(executor);
+        executor.shutdown(); // simulate a shut-down executor
+
+        assertThrows(RejectedExecutionException.class, () -> svc.submitMerge("d6"));
+
+        // The rollback must leave the task in NONE so it is not stuck in a pending merge.
+        assertEquals(UploadTask.MERGE_STATE_NONE, svc.getMergeStatus("d6").getState());
+        // Chunks can still be uploaded afterwards.
+        svc.uploadChunk(request("d6", 0, 1), new ByteArrayInputStream(chunk));
+        assertEquals(1, svc.getProgress("d6").getUploadedCount());
+    }
+
+    private ResumableUploadService asyncService() throws IOException {
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta3").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks3").toPath()),
+                new File(folder.getRoot(), "files3"));
+        svc.setAsyncExecutor(Executors.newSingleThreadExecutor());
+        return svc;
+    }
+
+    private static MergeStatus awaitTerminal(ResumableUploadService svc, String identifier)
+            throws InterruptedException {
+        for (int i = 0; i < 200; i++) {
+            MergeStatus status = svc.getMergeStatus(identifier);
+            String state = status.getState();
+            if (UploadTask.MERGE_STATE_SUCCEEDED.equals(state)
+                    || UploadTask.MERGE_STATE_FAILED.equals(state)) {
+                return status;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("Merge did not reach a terminal state: " + identifier);
+    }
+
+    /** Delegating {@link TaskStore} that can be made to fail on the next {@code save}. */
+    private static final class SaveFailingStore implements TaskStore {
+        private final TaskStore delegate;
+        volatile boolean failNextSave;
+
+        SaveFailingStore(TaskStore delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public Optional<UploadTask> get(String identifier) {
+            return delegate.get(identifier);
+        }
+
+        @Override
+        public void save(UploadTask task) {
+            if (failNextSave) {
+                throw new UncheckedIOException("simulated metadata write failure",
+                        new IOException("disk full"));
+            }
+            delegate.save(task);
+        }
+
+        @Override
+        public boolean remove(String identifier) {
+            return delegate.remove(identifier);
+        }
+
+        @Override
+        public Collection<UploadTask> list() {
+            return delegate.list();
+        }
     }
 }

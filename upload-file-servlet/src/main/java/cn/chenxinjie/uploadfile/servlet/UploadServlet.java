@@ -7,6 +7,7 @@
 package cn.chenxinjie.uploadfile.servlet;
 
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
+import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
@@ -30,6 +31,8 @@ import java.io.InputStream;
  * <ul>
  *   <li>{@code POST /upload}: upload one chunk (multipart, carrying identifier/fileName/fileSize/chunkSize/chunkTotal/chunkIndex/chunkMd5 plus the chunk file); returns {@link UploadProgress} JSON</li>
  *   <li>{@code POST /upload?action=merge&identifier=xxx}: merge chunks; returns {@link UploadResult} JSON</li>
+ *   <li>{@code POST /upload?action=mergeAsync&identifier=xxx}: submit the merge asynchronously; returns {@link MergeStatus} JSON with HTTP 202</li>
+ *   <li>{@code GET /upload?action=mergeStatus&identifier=xxx}: query the async merge status; returns {@link MergeStatus} JSON</li>
  *   <li>{@code GET /upload?action=progress&identifier=xxx}: query progress; returns {@link UploadProgress} JSON</li>
  * </ul>
  *
@@ -42,6 +45,9 @@ import java.io.InputStream;
 public class UploadServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
+
+    private static final java.util.logging.Logger LOG =
+            java.util.logging.Logger.getLogger(UploadServlet.class.getName());
 
     private final Gson gson = new Gson();
     private ResumableUploadService uploadService;
@@ -61,14 +67,22 @@ public class UploadServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        doProgress(req, resp);
+        if ("mergeStatus".equals(req.getParameter("action"))) {
+            doMergeStatus(req, resp);
+        } else {
+            doProgress(req, resp);
+        }
     }
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        // action=merge triggers the merge endpoint; anything else is treated as a chunk upload.
-        if ("merge".equals(req.getParameter("action"))) {
+        // action=merge triggers the merge endpoint; action=mergeAsync submits it asynchronously;
+        // anything else is treated as a chunk upload.
+        String action = req.getParameter("action");
+        if ("merge".equals(action)) {
             doMerge(req, resp);
+        } else if ("mergeAsync".equals(action)) {
+            doMergeAsync(req, resp);
         } else {
             doChunkUpload(req, resp);
         }
@@ -112,7 +126,34 @@ public class UploadServlet extends HttpServlet {
             UploadResult result = uploadService.merge(identifier);
             writeJson(resp, result.isSuccess() ? 200 : 400, gson.toJson(result));
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Merge failed: " + e.getMessage())));
+            // Log the details server-side but return a generic message so internal paths
+            // and implementation details are never exposed to the client.
+            LOG.log(java.util.logging.Level.WARNING, "Merge failed for identifier: " + identifier, e);
+            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Merge failed")));
+        }
+    }
+
+    private void doMergeAsync(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String identifier = param(req, "identifier");
+        try {
+            MergeStatus status = uploadService.submitMerge(identifier);
+            writeJson(resp, 202, gson.toJson(status));
+        } catch (Exception e) {
+            writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
+        }
+    }
+
+    private void doMergeStatus(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String identifier = param(req, "identifier");
+        if (identifier == null || identifier.trim().isEmpty()) {
+            writeJson(resp, 400, gson.toJson(MergeStatus.none(null)));
+            return;
+        }
+        try {
+            MergeStatus status = uploadService.getMergeStatus(identifier);
+            writeJson(resp, 200, gson.toJson(status));
+        } catch (Exception e) {
+            writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
         }
     }
 

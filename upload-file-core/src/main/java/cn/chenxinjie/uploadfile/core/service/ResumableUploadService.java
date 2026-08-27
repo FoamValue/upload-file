@@ -8,6 +8,7 @@ package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
+import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
@@ -18,13 +19,18 @@ import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+import java.nio.channels.FileChannel;
+import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 
 /**
  * Core resumable-upload service.
@@ -45,20 +51,56 @@ public class ResumableUploadService {
     private final ChunkStorage chunkStorage;
     private final File mergedFileDir;
     private final boolean verifyChecksum;
+    private final boolean mergeFsync;
+    private final boolean mergeAtomic;
     private final Object[] locks = new Object[LOCK_COUNT];
+
+    /** Maximum bytes accepted for a single chunk; 0 or negative means unlimited. */
+    private volatile long maxChunkBytes;
+
+    /** Async merge executor; when null, async merge is disabled and only the synchronous entry is used. */
+    private volatile ExecutorService asyncExecutor;
 
     public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir) {
         this(taskStore, chunkStorage, mergedFileDir, true);
     }
 
     public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir, boolean verifyChecksum) {
+        this(taskStore, chunkStorage, mergedFileDir, verifyChecksum, true, true);
+    }
+
+    public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
+                                  boolean verifyChecksum, boolean mergeFsync, boolean mergeAtomic) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.chunkStorage = Objects.requireNonNull(chunkStorage, "chunkStorage");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
         this.verifyChecksum = verifyChecksum;
+        this.mergeFsync = mergeFsync;
+        this.mergeAtomic = mergeAtomic;
         for (int i = 0; i < LOCK_COUNT; i++) {
             locks[i] = new Object();
         }
+    }
+
+    /**
+     * Enables async merge. When enabled, {@link #submitMerge(String)} becomes available and
+     * new chunk uploads are rejected while the merge is pending/running/finished.
+     */
+    public void setAsyncExecutor(ExecutorService asyncExecutor) {
+        this.asyncExecutor = asyncExecutor;
+    }
+
+    public boolean isAsyncMergeEnabled() {
+        return asyncExecutor != null;
+    }
+
+    /**
+     * Sets the maximum number of bytes accepted for a single chunk; 0 or negative disables the
+     * limit. A chunk larger than the limit is rejected and its bytes are discarded, guarding
+     * against disk exhaustion from oversized uploads.
+     */
+    public void setMaxChunkBytes(long maxChunkBytes) {
+        this.maxChunkBytes = maxChunkBytes;
     }
 
     private Object lockFor(String identifier) {
@@ -102,9 +144,28 @@ public class ResumableUploadService {
             if (task.isMerged()) {
                 throw new IllegalStateException("Task already merged, cannot upload chunks: " + identifier);
             }
+            if (asyncExecutor != null) {
+                // When async merge is enabled, reject new chunks while a merge is in flight
+                // or already finished, so the merged result is never silently inconsistent.
+                String state = task.mergeState();
+                if (UploadTask.MERGE_STATE_PENDING.equals(state)
+                        || UploadTask.MERGE_STATE_RUNNING.equals(state)
+                        || UploadTask.MERGE_STATE_SUCCEEDED.equals(state)) {
+                    throw new IllegalStateException("Async merge is running or finished, cannot upload chunks: " + identifier);
+                }
+            }
             if (!task.getUploadedChunks().contains(chunkIndex)) {
                 // Chunk not yet uploaded: store it, optionally verify it, then record the progress.
                 chunkStorage.saveChunk(identifier, chunkIndex, in);
+                if (maxChunkBytes > 0) {
+                    // Reject an oversized chunk and discard its bytes before any progress is recorded.
+                    File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
+                    if (saved.isFile() && saved.length() > maxChunkBytes) {
+                        chunkStorage.deleteChunk(identifier, chunkIndex);
+                        throw new IllegalArgumentException("Chunk " + chunkIndex
+                                + " exceeds the maximum allowed size of " + maxChunkBytes + " bytes");
+                    }
+                }
                 if (verifyChecksum && StringUtil.isNotBlank(request.getChunkMd5())) {
                     // Recompute the MD5 of the persisted chunk and compare it with the expected
                     // value, so a corrupted transfer is rejected before the progress is recorded.
@@ -146,7 +207,10 @@ public class ResumableUploadService {
     /**
      * Merges all uploaded chunks into the complete file and cleans up the chunks.
      *
-     * <p>The merged file is written to {@code <mergedFileDir>/<identifier>/<fileName>}.</p>
+     * <p>The merged file is written to {@code <mergedFileDir>/<identifier>/<fileName>}.
+     * With atomic merge enabled, the file is first written to a temp file in the same directory,
+     * optionally fsync'd, then moved into place with {@code ATOMIC_MOVE}; the temp file is removed
+     * on any failure so a corrupt file is never left behind.</p>
      *
      * @throws IllegalStateException chunks are incomplete or the merged size does not match the declared one
      * @throws NoSuchElementException the task does not exist
@@ -175,30 +239,159 @@ public class ResumableUploadService {
             Path dir = mergedFileDir.toPath().resolve(identifier);
             Files.createDirectories(dir);
             Path out = dir.resolve(task.getFileName());
-            // Concatenate the chunks in index order to rebuild the original file.
-            try (OutputStream os = new BufferedOutputStream(Files.newOutputStream(out))) {
-                for (int i = 0; i < task.getChunkTotal(); i++) {
-                    File chunkFile = chunkStorage.getChunkFile(identifier, i);
-                    if (!chunkFile.isFile()) {
-                        throw new IllegalStateException("Missing chunk: " + i + " (" + identifier + ")");
-                    }
-                    Files.copy(chunkFile.toPath(), os);
+            Path tmp = null;
+            try {
+                Path writeTarget = out;
+                if (mergeAtomic) {
+                    tmp = dir.resolve(task.getFileName() + ".merge-" + UUID.randomUUID() + ".tmp");
+                    writeTarget = tmp;
+                }
+                writeMergedFile(task, writeTarget);
+                long size = Files.size(writeTarget);
+                if (task.getFileSize() > 0 && size != task.getFileSize()) {
+                    // Guard against data loss: if the size does not match the declared one, discard the result.
+                    Files.deleteIfExists(writeTarget);
+                    throw new IllegalStateException("Merged file size mismatch, expected "
+                            + task.getFileSize() + ", actual " + size + " (" + identifier + ")");
+                }
+                if (mergeAtomic) {
+                    atomicMove(tmp, out);
+                }
+                // Merge succeeded: persist the merged state BEFORE removing the chunks, so an
+                // interrupted save (e.g. IO error) never leaves the task with both the chunks
+                // deleted and the task not marked as merged.
+                task.setMerged(true);
+                task.setFinalPath(out.toAbsolutePath().toString());
+                task.setFinalFileSize(size);
+                taskStore.save(task);
+                try {
+                    chunkStorage.deleteChunks(identifier);
+                } catch (RuntimeException cleanupFailure) {
+                    // Best-effort cleanup: the merged file and task state are already committed;
+                    // leftover chunks are reclaimed by the orphan-data cleanup later.
+                }
+                return UploadResult.merged(task, out.toAbsolutePath().toString(), size);
+            } finally {
+                // Remove the temp file on any failure (or when it was already moved into place).
+                if (tmp != null) {
+                    Files.deleteIfExists(tmp);
                 }
             }
-            long size = Files.size(out);
-            if (task.getFileSize() > 0 && size != task.getFileSize()) {
-                // Guard against data loss: if the size does not match the declared one, discard the result.
-                Files.deleteIfExists(out);
-                throw new IllegalStateException("Merged file size mismatch, expected "
-                        + task.getFileSize() + ", actual " + size + " (" + identifier + ")");
+        }
+    }
+
+    /**
+     * Submits the merge to the async executor (returns 202-style PENDING status) and returns
+     * the current status. Submitting the same identifier while PENDING/RUNNING is idempotent.
+     *
+     * @throws IllegalStateException async merge is not enabled
+     * @throws NoSuchElementException the task does not exist
+     */
+    public MergeStatus submitMerge(String identifier) {
+        StringUtil.requireSafeIdentifier(identifier);
+        if (asyncExecutor == null) {
+            throw new IllegalStateException("Async merge is not enabled");
+        }
+        synchronized (lockFor(identifier)) {
+            UploadTask task = taskStore.get(identifier).orElse(null);
+            if (task == null) {
+                throw new NoSuchElementException("Upload task not found: " + identifier);
             }
-            // Merge succeeded: clean up the chunks and mark the task as merged for later downloads.
-            chunkStorage.deleteChunks(identifier);
-            task.setMerged(true);
-            task.setFinalPath(out.toAbsolutePath().toString());
-            task.setFinalFileSize(size);
+            if (task.isMerged()) {
+                return MergeStatus.from(task);
+            }
+            String state = task.mergeState();
+            if (UploadTask.MERGE_STATE_PENDING.equals(state) || UploadTask.MERGE_STATE_RUNNING.equals(state)) {
+                // Already submitted/in flight: return the current status without re-submitting.
+                return MergeStatus.from(task);
+            }
+            task.setMergeState(UploadTask.MERGE_STATE_PENDING);
+            task.setMergeError(null);
             taskStore.save(task);
-            return UploadResult.merged(task, out.toAbsolutePath().toString(), size);
+            try {
+                asyncExecutor.submit(() -> doAsyncMerge(identifier));
+            } catch (RuntimeException e) {
+                // The executor rejected the task (e.g. it was shut down); roll the state back so
+                // the task is never stuck in a pending merge that cannot finish.
+                task.setMergeState(UploadTask.MERGE_STATE_NONE);
+                taskStore.save(task);
+                throw e;
+            }
+            return MergeStatus.from(task);
+        }
+    }
+
+    /**
+     * Returns the async merge status; {@code NONE} when the task does not exist or was never submitted.
+     */
+    public MergeStatus getMergeStatus(String identifier) {
+        StringUtil.requireSafeIdentifier(identifier);
+        UploadTask task = taskStore.get(identifier).orElse(null);
+        return task == null ? MergeStatus.none(identifier) : MergeStatus.from(task);
+    }
+
+    private void doAsyncMerge(String identifier) {
+        synchronized (lockFor(identifier)) {
+            UploadTask task = taskStore.get(identifier).orElse(null);
+            if (task == null || !UploadTask.MERGE_STATE_PENDING.equals(task.mergeState())) {
+                return;
+            }
+            task.setMergeState(UploadTask.MERGE_STATE_RUNNING);
+            task.setMergeStartedAt(System.currentTimeMillis());
+            taskStore.save(task);
+        }
+        try {
+            merge(identifier);
+            synchronized (lockFor(identifier)) {
+                UploadTask task = taskStore.get(identifier).orElse(null);
+                if (task != null) {
+                    task.setMergeState(UploadTask.MERGE_STATE_SUCCEEDED);
+                    task.setMergeError(null);
+                    taskStore.save(task);
+                }
+            }
+        } catch (Exception e) {
+            synchronized (lockFor(identifier)) {
+                UploadTask task = taskStore.get(identifier).orElse(null);
+                if (task != null) {
+                    task.setMergeState(UploadTask.MERGE_STATE_FAILED);
+                    task.setMergeError(e.getMessage());
+                    taskStore.save(task);
+                }
+            }
+        }
+    }
+
+    private void writeMergedFile(UploadTask task, Path target) throws IOException {
+        // Concatenate the chunks in index order to rebuild the original file.
+        String identifier = task.getIdentifier();
+        FileOutputStream fos = new FileOutputStream(target.toFile());
+        BufferedOutputStream bos = new BufferedOutputStream(fos);
+        try {
+            for (int i = 0; i < task.getChunkTotal(); i++) {
+                File chunkFile = chunkStorage.getChunkFile(identifier, i);
+                if (!chunkFile.isFile()) {
+                    throw new IllegalStateException("Missing chunk: " + i + " (" + identifier + ")");
+                }
+                Files.copy(chunkFile.toPath(), bos);
+            }
+            bos.flush();
+            if (mergeFsync && mergeAtomic) {
+                // Persist the bytes before the rename so the final file is durable on crash.
+                FileChannel channel = fos.getChannel();
+                channel.force(true);
+            }
+        } finally {
+            bos.close();
+        }
+    }
+
+    private static void atomicMove(Path src, Path target) throws IOException {
+        try {
+            Files.move(src, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            // Some file systems do not support atomic moves; fall back to a plain rename.
+            Files.move(src, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

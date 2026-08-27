@@ -137,8 +137,17 @@ public class FileTaskStore implements TaskStore {
         try (DirectoryStream<Path> ds = Files.newDirectoryStream(rootDir, "*" + SUFFIX)) {
             for (Path path : ds) {
                 String name = path.getFileName().toString();
+                // Skip internal temp files (e.g. a leftover ".meta-*.json" from an interrupted save).
+                if (name.startsWith(".")) {
+                    continue;
+                }
                 String identifier = name.substring(0, name.length() - SUFFIX.length());
-                get(identifier).ifPresent(result::add);
+                try {
+                    get(identifier).ifPresent(result::add);
+                } catch (RuntimeException ignored) {
+                    // Skip a corrupt metadata file without failing the whole list operation,
+                    // matching the behavior of the JDBC/Redis stores.
+                }
             }
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to list task metadata: " + rootDir, e);

@@ -9,8 +9,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-- Planned: support for custom `TaskStore` / `ChunkStorage` implementations documented with examples (Redis / OSS / S3).
 - Planned: Spring Boot 3.x (`jakarta.servlet`) adapter.
+
+## [1.0.0-rc.2] - 2026-08-26
+
+**Pre-release.** Second release candidate. New governance/robustness features are off by default, so upgrading from `rc.1` keeps the existing behavior.
+
+### Added
+
+- **Atomic merge (T2)**: merge writes a temp file in the same directory, optionally fsyncs it, then renames it into place with `ATOMIC_MOVE`; a mid-write failure never leaves a corrupt file behind
+- **Expired-task cleanup (T1)**: `StorageCleanupService` removes incomplete tasks (and their chunks) idle longer than `cleanup.task-ttl`; `TTL=0` means never clean
+- **Orphan-data GC (T3)**: `ChunkStorage.listIdentifiers()` default method; opt-in scan removes chunk/merged dirs with no task record
+- **Async merge (T4)**: `submitMerge` / `getMergeStatus`, `action=mergeAsync` (HTTP 202) and `action=mergeStatus`; state machine `NONE -> PENDING -> RUNNING -> SUCCEEDED/FAILED`; new chunks rejected while in flight
+- **Pluggable metadata storage (T5)**: new optional modules `upload-file-store-jdbc` (`JdbcTaskStore`) and `upload-file-store-redis` (`RedisTaskStore`); `upload-file.metadata-store` (`auto|memory|file|jdbc|redis`)
+- New properties: `merge.fsync`, `merge.atomic`, `cleanup.enabled`, `cleanup.run-on-startup`, `cleanup.interval`, `cleanup.task-ttl`, `cleanup.orphan-enabled`, `async-merge.enabled`, `async-merge.thread-pool-size`, `metadata-store`, `jdbc.table-name`, `jdbc.init-sql`, `redis.host`, `redis.port`, `redis.password`, `redis.key-prefix`, `redis.ttl-seconds`; matching Servlet init-params
+
+### Changed
+
+- `UploadTask` gains `mergeState` / `mergeError` / `mergeStartedAt`; old JSON metadata reads as `NONE` (backward compatible)
+- The merge temp file is removed on failure; leftover temp files are reclaimed by the orphan GC (T3)
+- `metadata-store=auto` reproduces the rc.1 behavior (file when `metadata-dir` is set, otherwise memory)
+
+### Compatibility
+
+- All new features are off by default (`cleanup.*` and `async-merge.enabled` default to `false`), preserving rc.1 production behavior after a bare upgrade
+- Existing endpoints (`merge`, `progress`) and the synchronous `merge()` entry are unchanged; `ChunkStorage` implementations need no change
+
+### Dependencies
+
+- New optional: `upload-file-store-jdbc`, `upload-file-store-redis` (Jedis 4.4.0); H2 2.2.224 (test only)
 
 ## [1.0.0-rc.1] - 2026-08-23
 

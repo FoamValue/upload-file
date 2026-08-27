@@ -47,4 +47,15 @@ public interface ChunkStorage {
      * Deletes all chunks of the given identifier.
      */
     void deleteChunks(String identifier);
+
+    /**
+     * Returns the identifiers currently present on disk (used by the orphan-data cleanup).
+     *
+     * <p>Default implementation returns an empty set, so custom implementations that do not
+     * override this method are never wrongly cleaned. Only implementations that can enumerate
+     * their on-disk data (e.g. {@link LocalFileChunkStorage}) should override it.</p>
+     */
+    default java.util.Set<String> listIdentifiers() {
+        return java.util.Collections.emptySet();
+    }
 }

@@ -4,7 +4,7 @@
 
 ## Current Optimization Plan
 
-- The P0 items (5) are planned for **V1.0.0**; see [V1.0.0 Task Development Plan](PLAN-V1.0.0.md).
+- The P0 items (5) are planned for **V1.0.0**; see [V1.0.0 Task Development Plan](PLAN-V1.0.0-rc.2.md).
 - P1/P2 items are pending confirmation.
 
 ## Complete Optimization List

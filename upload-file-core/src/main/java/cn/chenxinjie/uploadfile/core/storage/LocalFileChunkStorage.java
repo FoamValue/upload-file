@@ -21,7 +21,9 @@ import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**
@@ -124,6 +126,24 @@ public class LocalFileChunkStorage implements ChunkStorage {
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to delete chunk: " + chunkPath(identifier, chunkIndex), e);
         }
+    }
+
+    @Override
+    public Set<String> listIdentifiers() {
+        Set<String> result = new HashSet<>();
+        if (!Files.isDirectory(rootDir)) {
+            return result;
+        }
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(rootDir)) {
+            for (Path path : ds) {
+                if (Files.isDirectory(path)) {
+                    result.add(path.getFileName().toString());
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to list chunk identifiers: " + rootDir, e);
+        }
+        return result;
     }
 
     @Override

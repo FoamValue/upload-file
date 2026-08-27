@@ -13,7 +13,9 @@ import org.junit.rules.TemporaryFolder;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
@@ -80,5 +82,15 @@ public class LocalFileChunkStorageTest {
     public void listChunksUnknownIdentifierIsEmpty() {
         LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
         assertTrue(storage.listChunks("nope").isEmpty());
+    }
+
+    @Test
+    public void listIdentifiersListsChunkDirs() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        storage.saveChunk("f1", 0, new ByteArrayInputStream("a".getBytes()));
+        storage.saveChunk("f2", 1, new ByteArrayInputStream("b".getBytes()));
+
+        Set<String> identifiers = storage.listIdentifiers();
+        assertEquals(new HashSet<>(Arrays.asList("f1", "f2")), identifiers);
     }
 }

@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
@@ -22,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -133,5 +135,103 @@ public class UploadServletTest {
 
         assertEquals(400, response.getStatus());
         assertFalse(uploadService.isChunkUploaded(IDENTIFIER, 0));
+    }
+
+    @Test
+    public void mergeAsyncWithoutAsyncMergeReturns400() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        servlet.doPost(request, new MockHttpServletResponse());
+
+        MockHttpServletRequest mergeRequest = new MockHttpServletRequest();
+        mergeRequest.setParameter("action", "mergeAsync");
+        mergeRequest.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse mergeResponse = new MockHttpServletResponse();
+
+        servlet.doPost(mergeRequest, mergeResponse);
+
+        assertEquals(400, mergeResponse.getStatus());
+    }
+
+    @Test
+    public void mergeAsyncReachesSucceeded() throws Exception {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.asyncMergeEnabled = true;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+        UploadServlet asyncServlet = new UploadServlet();
+        asyncServlet.setUploadService(context.getUploadService());
+
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        asyncServlet.doPost(request, new MockHttpServletResponse());
+
+        MockHttpServletRequest submit = new MockHttpServletRequest();
+        submit.setParameter("action", "mergeAsync");
+        submit.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse submitResponse = new MockHttpServletResponse();
+        asyncServlet.doPost(submit, submitResponse);
+        assertEquals(202, submitResponse.getStatus());
+        MergeStatus submitted = new Gson().fromJson(submitResponse.getContentAsString(), MergeStatus.class);
+        assertEquals("PENDING", submitted.getState());
+
+        MergeStatus terminal = null;
+        for (int i = 0; i < 200 && terminal == null; i++) {
+            MockHttpServletRequest statusRequest = new MockHttpServletRequest();
+            statusRequest.setParameter("action", "mergeStatus");
+            statusRequest.setParameter("identifier", IDENTIFIER);
+            MockHttpServletResponse statusResponse = new MockHttpServletResponse();
+            asyncServlet.doGet(statusRequest, statusResponse);
+            assertEquals(200, statusResponse.getStatus());
+            MergeStatus s = new Gson().fromJson(statusResponse.getContentAsString(), MergeStatus.class);
+            if ("SUCCEEDED".equals(s.getState()) || "FAILED".equals(s.getState())) {
+                terminal = s;
+            } else {
+                Thread.sleep(20);
+            }
+        }
+        assertNotNull(terminal);
+        assertEquals("SUCCEEDED", terminal.getState());
+        assertTrue(terminal.isMerged());
+    }
+
+    @Test
+    public void mergeStatusForUnknownIdentifierReturnsNone() throws Exception {
+        MockHttpServletRequest statusRequest = new MockHttpServletRequest();
+        statusRequest.setParameter("action", "mergeStatus");
+        statusRequest.setParameter("identifier", "nope");
+        MockHttpServletResponse statusResponse = new MockHttpServletResponse();
+
+        servlet.doGet(statusRequest, statusResponse);
+
+        assertEquals(200, statusResponse.getStatus());
+        MergeStatus status = new Gson().fromJson(statusResponse.getContentAsString(), MergeStatus.class);
+        assertEquals("NONE", status.getState());
+    }
+
+    @Test
+    public void mergeFailureDoesNotLeakInternalMessage() throws Exception {
+        // Upload a chunk, then corrupt the metadata so the merge fails.
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        servlet.doPost(request, new MockHttpServletResponse());
+
+        cn.chenxinjie.uploadfile.core.model.UploadTask task =
+                uploadService.getTaskStore().get(IDENTIFIER).get();
+        task.setFileSize(9999);
+        uploadService.getTaskStore().save(task);
+
+        MockHttpServletRequest mergeRequest = new MockHttpServletRequest();
+        mergeRequest.setParameter("action", "merge");
+        mergeRequest.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse mergeResponse = new MockHttpServletResponse();
+
+        servlet.doPost(mergeRequest, mergeResponse);
+
+        assertEquals(400, mergeResponse.getStatus());
+        UploadResult result = new Gson().fromJson(mergeResponse.getContentAsString(), UploadResult.class);
+        assertFalse(result.isSuccess());
+        assertEquals("Merge failed", result.getMessage());
+        // Internal details (e.g. the absolute final path) must not leak to the client.
+        assertFalse(result.getMessage().contains(folder.getRoot().getAbsolutePath()));
     }
 }

@@ -12,7 +12,7 @@
 
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file</artifactId>
-    <version>1.0.0-rc.1</version>
+    <version>1.0.0-rc.2</version>
     <packaging>pom</packaging>
 
     <name>upload-file</name>
@@ -46,6 +46,8 @@
         <module>upload-file-core</module>
         <module>upload-file-servlet</module>
         <module>upload-file-spring-boot-starter</module>
+        <module>upload-file-store-jdbc</module>
+        <module>upload-file-store-redis</module>
         <module>example/upload-file-demo</module>
         <module>example/upload-file-servlet-demo</module>
     </modules>
@@ -64,6 +66,8 @@
         <junit.version>4.13.2</junit.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
         <spring.boot.version>2.7.18</spring.boot.version>
+        <jedis.version>4.4.0</jedis.version>
+        <h2.version>2.2.224</h2.version>
 
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
@@ -93,6 +97,16 @@
                 <artifactId>upload-file-spring-boot-starter</artifactId>
                 <version>${project.version}</version>
             </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-store-jdbc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-store-redis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
 
             <dependency>
                 <groupId>com.google.code.gson</groupId>
@@ -104,6 +118,16 @@
                 <artifactId>junit</artifactId>
                 <version>${junit.version}</version>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>redis.clients</groupId>
+                <artifactId>jedis</artifactId>
+                <version>${jedis.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${h2.version}</version>
             </dependency>
             <dependency>
                 <groupId>javax.servlet</groupId>

@@ -29,6 +29,27 @@ public class UploadTask {
     private long createTime;
     private long updateTime;
 
+    /** Async-merge state: NONE/PENDING/RUNNING/SUCCEEDED/FAILED; null (old metadata) is treated as NONE. */
+    private String mergeState;
+    /** Error message carried when the async merge fails. */
+    private String mergeError;
+    /** Timestamp when the async merge entered the RUNNING state. */
+    private long mergeStartedAt;
+
+    public static final String MERGE_STATE_NONE = "NONE";
+    public static final String MERGE_STATE_PENDING = "PENDING";
+    public static final String MERGE_STATE_RUNNING = "RUNNING";
+    public static final String MERGE_STATE_SUCCEEDED = "SUCCEEDED";
+    public static final String MERGE_STATE_FAILED = "FAILED";
+
+    /**
+     * Returns the async-merge state, never null; missing fields in old metadata
+     * deserialize to null and are normalized to {@link #MERGE_STATE_NONE}.
+     */
+    public String mergeState() {
+        return mergeState == null ? MERGE_STATE_NONE : mergeState;
+    }
+
     public static UploadTask from(ChunkUploadRequest req) {
         UploadTask task = new UploadTask();
         task.setIdentifier(req.getIdentifier());
@@ -145,5 +166,29 @@ public class UploadTask {
 
     public void setUpdateTime(long updateTime) {
         this.updateTime = updateTime;
+    }
+
+    public String getMergeState() {
+        return mergeState;
+    }
+
+    public void setMergeState(String mergeState) {
+        this.mergeState = mergeState;
+    }
+
+    public String getMergeError() {
+        return mergeError;
+    }
+
+    public void setMergeError(String mergeError) {
+        this.mergeError = mergeError;
+    }
+
+    public long getMergeStartedAt() {
+        return mergeStartedAt;
+    }
+
+    public void setMergeStartedAt(long mergeStartedAt) {
+        this.mergeStartedAt = mergeStartedAt;
     }
 }

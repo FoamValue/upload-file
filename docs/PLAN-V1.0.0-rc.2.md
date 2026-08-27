@@ -1,12 +1,12 @@
-# V1.0.0 Task Development Plan
+# V1.0.0-rc.2 Task Development Plan
 
-> 🇨🇳 [简体中文](PLAN-V1.0.0.zh-CN.md)
+> 🇨🇳 [简体中文](PLAN-V1.0.0-rc.2.zh-CN.md)
 >
-> Corresponds to the P0 items in [Future Optimization Directions](ROADMAP.md) ("Complete Optimization List"), targeting version **V1.0.0**.
+> Corresponds to the P0 items in [Future Optimization Directions](ROADMAP.md) ("Complete Optimization List"), targeting version **V1.0.0-rc.2**.
 
 ## 1. Goal & Scope
 
-V1.0.0 implements the 5 P0 items (foundational robustness) of the current plan; P1/P2 items are scheduled for later versions:
+V1.0.0-rc.2 implements the 5 P0 items (foundational robustness) of the current plan; P1/P2 items are scheduled for later versions:
 
 | ID | P0 item | Description |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ For pure Servlet deployments, matching init-params are added (parsed by `UploadF
 - `README(.zh-CN).md`: new properties, new modules, async-merge usage;
 - `docs/API(.zh-CN).md`: `mergeAsync` / `mergeStatus` endpoint docs;
 - `docs/DESIGN(.zh-CN).md`: update component responsibilities and directory layout (temp files and cleanup);
-- `docs/ROADMAP(.zh-CN).md`: mark P0 planned release version as V1.0.0;
+- `docs/ROADMAP(.zh-CN).md`: mark P0 planned release version as V1.0.0-rc.2;
 - Example `application.yml` / servlet `web.xml`: add new config examples.
 
 ## 8. Milestones & Release
@@ -126,4 +126,4 @@ For pure Servlet deployments, matching init-params are added (parsed by `UploadF
 2. **M2**: T1+T3 cleanup/governance (share `StorageCleanupService` and the scheduler);
 3. **M3**: T4 async merge (after merge is stabilized);
 4. **M4**: T5 pluggable metadata storage (new modules + starter wiring; can run in parallel with M2/M3);
-5. **M5**: docs/examples/tests completed, version `1.0.0-rc.1 -> 1.0.0`, published to Maven Central via the existing release profile.
+5. **M5**: docs/examples/tests completed, version `1.0.0-rc.2 -> 1.0.0`, published to Maven Central via the existing release profile.
