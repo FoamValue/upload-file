@@ -75,7 +75,7 @@ public class UploadFileAutoConfiguration {
                     DataSource ds = dataSourceProvider.getIfAvailable();
                     if (ds != null) {
                         return new cn.chenxinjie.uploadfile.store.jdbc.JdbcTaskStore(
-                                ds, properties.getJdbcTableName(), properties.getJdbcInitSql());
+                                ds, properties.getJdbc().getTableName(), properties.getJdbc().getInitSql());
                     }
                     LOG.warn("upload-file.metadata-store=jdbc but no DataSource bean found; "
                             + "falling back to the auto store");
@@ -87,8 +87,9 @@ public class UploadFileAutoConfiguration {
             case "redis":
                 if (isClassPresent(REDIS_STORE_CLASS)) {
                     return cn.chenxinjie.uploadfile.store.redis.RedisTaskStore.create(
-                            properties.getRedisHost(), properties.getRedisPort(), properties.getRedisPassword(),
-                            properties.getRedisKeyPrefix(), properties.getRedisTtlSeconds());
+                            properties.getRedis().getHost(), properties.getRedis().getPort(),
+                            properties.getRedis().getPassword(),
+                            properties.getRedis().getKeyPrefix(), properties.getRedis().getTtlSeconds());
                 }
                 LOG.warn("upload-file.metadata-store=redis but upload-file-store-redis is not on the classpath; "
                         + "falling back to the auto store");
@@ -131,7 +132,7 @@ public class UploadFileAutoConfiguration {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         ResumableUploadService service = new ResumableUploadService(
                 taskStore, chunkStorage, mergedDir,
-                properties.isVerifyChecksum(), properties.isMergeFsync(), properties.isMergeAtomic(),
+                properties.isVerifyChecksum(), properties.getMerge().isFsync(), properties.getMerge().isAtomic(),
                 identifierLock);
         if (properties.getMaxChunkSize() > 0) {
             service.setMaxChunkBytes(properties.getMaxChunkSize());
@@ -160,12 +161,12 @@ public class UploadFileAutoConfiguration {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         StorageCleanupService cleanup = new StorageCleanupService(
                 taskStore, chunkStorage, mergedDir,
-                properties.getCleanupTaskTtl().toMillis(), properties.isCleanupOrphanEnabled(),
+                properties.getCleanup().getTaskTtl().toMillis(), properties.getCleanup().isOrphanEnabled(),
                 identifierLock);
         cleanup.setErrorListener(t -> LOG.warn("Upload-file storage cleanup failed", t));
-        if (properties.isCleanupEnabled()) {
-            cleanup.start(properties.getCleanupInterval().toMillis());
-            if (properties.isCleanupRunOnStartup()) {
+        if (properties.getCleanup().isEnabled()) {
+            cleanup.start(properties.getCleanup().getInterval().toMillis());
+            if (properties.getCleanup().isRunOnStartup()) {
                 try {
                     cleanup.cleanup();
                 } catch (RuntimeException e) {
@@ -190,7 +191,7 @@ public class UploadFileAutoConfiguration {
                 return t;
             }
         };
-        return Executors.newFixedThreadPool(properties.getAsyncMergeThreadPoolSize(), factory);
+        return Executors.newFixedThreadPool(properties.getAsyncMerge().getThreadPoolSize(), factory);
     }
 
     @Bean

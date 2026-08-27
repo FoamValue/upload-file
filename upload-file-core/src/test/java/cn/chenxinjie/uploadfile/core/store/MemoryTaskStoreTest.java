@@ -47,6 +47,8 @@ public class MemoryTaskStoreTest {
     @Test
     public void getUnknownIdentifierIsEmpty() {
         assertFalse(store.get("missing").isPresent());
+        assertFalse(store.get(null).isPresent());
+        assertFalse(store.get("").isPresent());
     }
 
     @Test

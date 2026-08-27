@@ -31,6 +31,9 @@ public class UploadResultTest {
         assertEquals("/data/files/r1/demo.bin", result.getFinalPath());
         assertEquals(1024L, result.getFinalFileSize());
         assertEquals(3, result.getUploadedCount());
+        assertEquals(3, result.getChunkTotal());
+        assertTrue(result.getUploadedChunks().isEmpty());
+        assertEquals("r1", result.getIdentifier());
     }
 
     @Test

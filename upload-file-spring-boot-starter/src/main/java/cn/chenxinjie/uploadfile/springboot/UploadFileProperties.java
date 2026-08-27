@@ -14,6 +14,11 @@ import java.time.temporal.ChronoUnit;
 
 /**
  * Configuration properties of the upload/download toolkit, prefix {@code upload-file}.
+ *
+ * <p>Nested groups ({@code merge}, {@code cleanup}, {@code async-merge}, {@code jdbc},
+ * {@code redis}) mirror the documented dotted property names, so e.g.
+ * {@code upload-file.merge.fsync=false} and
+ * {@code upload-file.cleanup.enabled=true} bind as expected.</p>
  */
 @ConfigurationProperties(prefix = "upload-file")
 public class UploadFileProperties {
@@ -39,60 +44,23 @@ public class UploadFileProperties {
     /** Max request size in bytes (multipart), -1 means unlimited. */
     private long maxRequestSize = -1;
 
-    /** Whether to fsync the merged temp file before renaming it into place (T2). */
-    private boolean mergeFsync = true;
-
-    /** Whether to merge via "temp file + atomic move" instead of writing the final file directly (T2). */
-    private boolean mergeAtomic = true;
-
-    /** Whether to start the expired-task / orphan-data cleanup scheduler (T1/T3). Default off for rc.1 compatibility. */
-    private boolean cleanupEnabled = false;
-
-    /** Whether to run one cleanup pass at startup (T3). Default off for rc.1 compatibility. */
-    private boolean cleanupRunOnStartup = false;
-
-    /** Cleanup period (T1/T3). */
-    @DurationUnit(ChronoUnit.MILLIS)
-    private Duration cleanupInterval = Duration.ofHours(1);
-
-    /** Expiry of incomplete tasks; 0 or negative means never clean (T1). */
-    @DurationUnit(ChronoUnit.MILLIS)
-    private Duration cleanupTaskTtl = Duration.ofHours(24);
-
-    /** Whether to enable orphan-data cleanup (T3). Default off for rc.1 compatibility. */
-    private boolean cleanupOrphanEnabled = false;
-
-    /** Whether to enable async merge (T4). */
-    private boolean asyncMergeEnabled = false;
-
-    /** Async merge thread count (T4). */
-    private int asyncMergeThreadPoolSize = 2;
-
     /** Metadata store type: auto/memory/file/jdbc/redis (T5). auto keeps the old behavior. */
     private String metadataStore = "auto";
 
-    /** JDBC table name (T5). */
-    private String jdbcTableName = "upload_task";
+    /** Merge behavior. */
+    private final Merge merge = new Merge();
 
-    /** SQL to auto-create the JDBC table; the table name is substituted for the first %s (T5). */
-    private String jdbcInitSql =
-            "CREATE TABLE IF NOT EXISTS %s (identifier VARCHAR(255) PRIMARY KEY, "
-                    + "data CLOB, create_time BIGINT, update_time BIGINT)";
+    /** Expired-task / orphan cleanup settings. */
+    private final Cleanup cleanup = new Cleanup();
 
-    /** Redis host (T5). */
-    private String redisHost = "localhost";
+    /** Async merge settings. */
+    private final AsyncMerge asyncMerge = new AsyncMerge();
 
-    /** Redis port (T5). */
-    private int redisPort = 6379;
+    /** JDBC store settings. */
+    private final Jdbc jdbc = new Jdbc();
 
-    /** Redis password; empty means no auth (T5). */
-    private String redisPassword;
-
-    /** Redis key prefix (T5). */
-    private String redisKeyPrefix = "upload:task:";
-
-    /** Redis record TTL in seconds; 0 means no expiry (T5). */
-    private int redisTtlSeconds = 0;
+    /** Redis store settings. */
+    private final Redis redis = new Redis();
 
     public String getStorageDir() {
         return storageDir;
@@ -150,78 +118,6 @@ public class UploadFileProperties {
         this.maxRequestSize = maxRequestSize;
     }
 
-    public boolean isMergeFsync() {
-        return mergeFsync;
-    }
-
-    public void setMergeFsync(boolean mergeFsync) {
-        this.mergeFsync = mergeFsync;
-    }
-
-    public boolean isMergeAtomic() {
-        return mergeAtomic;
-    }
-
-    public void setMergeAtomic(boolean mergeAtomic) {
-        this.mergeAtomic = mergeAtomic;
-    }
-
-    public boolean isCleanupEnabled() {
-        return cleanupEnabled;
-    }
-
-    public void setCleanupEnabled(boolean cleanupEnabled) {
-        this.cleanupEnabled = cleanupEnabled;
-    }
-
-    public boolean isCleanupRunOnStartup() {
-        return cleanupRunOnStartup;
-    }
-
-    public void setCleanupRunOnStartup(boolean cleanupRunOnStartup) {
-        this.cleanupRunOnStartup = cleanupRunOnStartup;
-    }
-
-    public Duration getCleanupInterval() {
-        return cleanupInterval;
-    }
-
-    public void setCleanupInterval(Duration cleanupInterval) {
-        this.cleanupInterval = cleanupInterval;
-    }
-
-    public Duration getCleanupTaskTtl() {
-        return cleanupTaskTtl;
-    }
-
-    public void setCleanupTaskTtl(Duration cleanupTaskTtl) {
-        this.cleanupTaskTtl = cleanupTaskTtl;
-    }
-
-    public boolean isCleanupOrphanEnabled() {
-        return cleanupOrphanEnabled;
-    }
-
-    public void setCleanupOrphanEnabled(boolean cleanupOrphanEnabled) {
-        this.cleanupOrphanEnabled = cleanupOrphanEnabled;
-    }
-
-    public boolean isAsyncMergeEnabled() {
-        return asyncMergeEnabled;
-    }
-
-    public void setAsyncMergeEnabled(boolean asyncMergeEnabled) {
-        this.asyncMergeEnabled = asyncMergeEnabled;
-    }
-
-    public int getAsyncMergeThreadPoolSize() {
-        return asyncMergeThreadPoolSize;
-    }
-
-    public void setAsyncMergeThreadPoolSize(int asyncMergeThreadPoolSize) {
-        this.asyncMergeThreadPoolSize = asyncMergeThreadPoolSize;
-    }
-
     public String getMetadataStore() {
         return metadataStore;
     }
@@ -230,59 +126,218 @@ public class UploadFileProperties {
         this.metadataStore = metadataStore;
     }
 
-    public String getJdbcTableName() {
-        return jdbcTableName;
+    public Merge getMerge() {
+        return merge;
     }
 
-    public void setJdbcTableName(String jdbcTableName) {
-        this.jdbcTableName = jdbcTableName;
+    public Cleanup getCleanup() {
+        return cleanup;
     }
 
-    public String getJdbcInitSql() {
-        return jdbcInitSql;
+    public AsyncMerge getAsyncMerge() {
+        return asyncMerge;
     }
 
-    public void setJdbcInitSql(String jdbcInitSql) {
-        this.jdbcInitSql = jdbcInitSql;
+    public Jdbc getJdbc() {
+        return jdbc;
     }
 
-    public String getRedisHost() {
-        return redisHost;
+    public Redis getRedis() {
+        return redis;
     }
 
-    public void setRedisHost(String redisHost) {
-        this.redisHost = redisHost;
+    /** {@code upload-file.merge.*} */
+    public static class Merge {
+        /** Whether to fsync the merged temp file before renaming it into place (T2). */
+        private boolean fsync = true;
+
+        /** Whether to merge via "temp file + atomic move" instead of writing the final file directly (T2). */
+        private boolean atomic = true;
+
+        public boolean isFsync() {
+            return fsync;
+        }
+
+        public void setFsync(boolean fsync) {
+            this.fsync = fsync;
+        }
+
+        public boolean isAtomic() {
+            return atomic;
+        }
+
+        public void setAtomic(boolean atomic) {
+            this.atomic = atomic;
+        }
     }
 
-    public int getRedisPort() {
-        return redisPort;
+    /** {@code upload-file.cleanup.*} */
+    public static class Cleanup {
+        /** Whether to start the expired-task / orphan-data cleanup scheduler (T1/T3). Default off for rc.1 compatibility. */
+        private boolean enabled = false;
+
+        /** Whether to run one cleanup pass at startup (T3). Default off for rc.1 compatibility. */
+        private boolean runOnStartup = false;
+
+        /** Cleanup period (T1/T3). */
+        @DurationUnit(ChronoUnit.MILLIS)
+        private Duration interval = Duration.ofHours(1);
+
+        /** Expiry of incomplete tasks; 0 or negative means never clean (T1). */
+        @DurationUnit(ChronoUnit.MILLIS)
+        private Duration taskTtl = Duration.ofHours(24);
+
+        /** Whether to enable orphan-data cleanup (T3). Default off for rc.1 compatibility. */
+        private boolean orphanEnabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isRunOnStartup() {
+            return runOnStartup;
+        }
+
+        public void setRunOnStartup(boolean runOnStartup) {
+            this.runOnStartup = runOnStartup;
+        }
+
+        public Duration getInterval() {
+            return interval;
+        }
+
+        public void setInterval(Duration interval) {
+            this.interval = interval;
+        }
+
+        public Duration getTaskTtl() {
+            return taskTtl;
+        }
+
+        public void setTaskTtl(Duration taskTtl) {
+            this.taskTtl = taskTtl;
+        }
+
+        public boolean isOrphanEnabled() {
+            return orphanEnabled;
+        }
+
+        public void setOrphanEnabled(boolean orphanEnabled) {
+            this.orphanEnabled = orphanEnabled;
+        }
     }
 
-    public void setRedisPort(int redisPort) {
-        this.redisPort = redisPort;
+    /** {@code upload-file.async-merge.*} */
+    public static class AsyncMerge {
+        /** Whether to enable async merge (T4). */
+        private boolean enabled = false;
+
+        /** Async merge thread count (T4). */
+        private int threadPoolSize = 2;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public int getThreadPoolSize() {
+            return threadPoolSize;
+        }
+
+        public void setThreadPoolSize(int threadPoolSize) {
+            this.threadPoolSize = threadPoolSize;
+        }
     }
 
-    public String getRedisPassword() {
-        return redisPassword;
+    /** {@code upload-file.jdbc.*} */
+    public static class Jdbc {
+        /** JDBC table name (T5). */
+        private String tableName = "upload_task";
+
+        /** SQL to auto-create the JDBC table; the table name is substituted for the first %s (T5). */
+        private String initSql =
+                "CREATE TABLE IF NOT EXISTS %s (identifier VARCHAR(255) PRIMARY KEY, "
+                        + "data CLOB, create_time BIGINT, update_time BIGINT)";
+
+        public String getTableName() {
+            return tableName;
+        }
+
+        public void setTableName(String tableName) {
+            this.tableName = tableName;
+        }
+
+        public String getInitSql() {
+            return initSql;
+        }
+
+        public void setInitSql(String initSql) {
+            this.initSql = initSql;
+        }
     }
 
-    public void setRedisPassword(String redisPassword) {
-        this.redisPassword = redisPassword;
-    }
+    /** {@code upload-file.redis.*} */
+    public static class Redis {
+        /** Redis host (T5). */
+        private String host = "localhost";
 
-    public String getRedisKeyPrefix() {
-        return redisKeyPrefix;
-    }
+        /** Redis port (T5). */
+        private int port = 6379;
 
-    public void setRedisKeyPrefix(String redisKeyPrefix) {
-        this.redisKeyPrefix = redisKeyPrefix;
-    }
+        /** Redis password; empty means no auth (T5). */
+        private String password;
 
-    public int getRedisTtlSeconds() {
-        return redisTtlSeconds;
-    }
+        /** Redis key prefix (T5). */
+        private String keyPrefix = "upload:task:";
 
-    public void setRedisTtlSeconds(int redisTtlSeconds) {
-        this.redisTtlSeconds = redisTtlSeconds;
+        /** Redis record TTL in seconds; 0 means no expiry (T5). */
+        private int ttlSeconds = 0;
+
+        public String getHost() {
+            return host;
+        }
+
+        public void setHost(String host) {
+            this.host = host;
+        }
+
+        public int getPort() {
+            return port;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
+
+        public String getKeyPrefix() {
+            return keyPrefix;
+        }
+
+        public void setKeyPrefix(String keyPrefix) {
+            this.keyPrefix = keyPrefix;
+        }
+
+        public int getTtlSeconds() {
+            return ttlSeconds;
+        }
+
+        public void setTtlSeconds(int ttlSeconds) {
+            this.ttlSeconds = ttlSeconds;
+        }
     }
 }

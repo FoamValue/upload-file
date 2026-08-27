@@ -12,11 +12,14 @@ import org.h2.jdbcx.JdbcDataSource;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.sql.Connection;
+import java.sql.Statement;
 import java.util.Optional;
 import java.util.TreeSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class JdbcTaskStoreTest {
@@ -125,5 +128,97 @@ public class JdbcTaskStoreTest {
         cn.chenxinjie.uploadfile.core.model.UploadResult result = service.merge("f1");
         assertTrue(result.isSuccess());
         assertTrue(service.getProgress("f1").isMerged());
+    }
+
+    @Test
+    public void constructorDefaultsUseUploadTaskTable() {
+        JdbcTaskStore oneArg = new JdbcTaskStore(dataSource);
+        assertEquals("upload_task", oneArg.getTableName());
+
+        JdbcTaskStore twoArg = new JdbcTaskStore(dataSource, "upload_task");
+        assertEquals("upload_task", twoArg.getTableName());
+
+        assertEquals("upload_task", store.getTableName());
+    }
+
+    @Test
+    public void rawInitSqlWithoutPlaceholderIsUsedAsIs() {
+        // A fully specified statement needs no %s substitution.
+        JdbcTaskStore raw = new JdbcTaskStore(dataSource, "t_raw",
+                "CREATE TABLE t_raw (id INT PRIMARY KEY, data CLOB, create_time BIGINT, update_time BIGINT)");
+        assertEquals("t_raw", raw.getTableName());
+    }
+
+    @Test
+    public void invalidInitSqlFailsConstruction() {
+        assertThrows(IllegalStateException.class,
+                () -> new JdbcTaskStore(dataSource, "t_bad", "THIS IS NOT VALID SQL"));
+    }
+
+    @Test
+    public void getNullAndEmptyIdentifiersReturnEmpty() {
+        assertFalse(store.get(null).isPresent());
+        assertFalse(store.get("").isPresent());
+    }
+
+    @Test
+    public void jsonLiteralNullRecordReadsAsEmpty() throws Exception {
+        insertRaw("jn", "null");
+        assertFalse(store.get("jn").isPresent());
+    }
+
+    @Test
+    public void recordWithoutUploadedChunksReadsAsEmptySet() throws Exception {
+        // An explicit null must be normalized to an empty set (Gson's constructor-initialized
+        // default would otherwise hide this fixup path).
+        insertRaw("nm", "{\"identifier\":\"nm\",\"fileName\":\"x.bin\",\"chunkTotal\":2,"
+                + "\"uploadedChunks\":null}");
+        UploadTask task = store.get("nm").get();
+        assertEquals(0, task.uploadedCount());
+        assertEquals(0, task.getUploadedChunks().size());
+    }
+
+    @Test
+    public void saveRollsBackWhenInsertFails() {
+        JdbcTaskStore narrow = new JdbcTaskStore(dataSource, "narrow",
+                "CREATE TABLE narrow (identifier VARCHAR(4) PRIMARY KEY, data CLOB, create_time BIGINT, update_time BIGINT)");
+        assertThrows(IllegalStateException.class,
+                () -> narrow.save(sampleTask("too-long-identifier")));
+    }
+
+    @Test
+    public void removeOnMissingTableFails() {
+        JdbcTaskStore missing = new JdbcTaskStore(dataSource, "missing_table", null);
+        assertThrows(IllegalStateException.class, () -> missing.remove("x"));
+    }
+
+    @Test
+    public void listOnMissingTableFails() {
+        JdbcTaskStore missing = new JdbcTaskStore(dataSource, "missing_table", null);
+        assertThrows(IllegalStateException.class, missing::list);
+    }
+
+    @Test
+    public void listSkipsCorruptRecords() throws Exception {
+        store.save(sampleTask("good1"));
+        insertRaw("bad1", "{ not valid json ");
+        assertEquals(1, store.list().size());
+        assertEquals("good1", store.list().iterator().next().getIdentifier());
+    }
+
+    @Test
+    public void listNormalizesNullUploadedChunks() throws Exception {
+        insertRaw("nm2", "{\"identifier\":\"nm2\",\"fileName\":\"x.bin\",\"chunkTotal\":2,"
+                + "\"uploadedChunks\":null}");
+        assertEquals(1, store.list().size());
+        assertEquals(0, store.list().iterator().next().uploadedCount());
+    }
+
+    private void insertRaw(String identifier, String dataJson) throws Exception {
+        try (Connection conn = dataSource.getConnection();
+             Statement st = conn.createStatement()) {
+            st.execute("INSERT INTO upload_task (identifier, data, create_time, update_time) VALUES ('"
+                    + identifier + "', '" + dataJson.replace("'", "''") + "', 0, 0)");
+        }
     }
 }

@@ -12,6 +12,7 @@ import java.util.Optional;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class DownloadRangeTest {
@@ -101,5 +102,26 @@ public class DownloadRangeTest {
         assertTrue(r.isPresent());
         assertEquals(10, r.get().getStart());
         assertEquals(20, r.get().getEnd());
+    }
+
+    @Test
+    public void getTotalReturnsFileSize() {
+        Optional<DownloadRange> r = DownloadRange.parse("bytes=0-9", 1000);
+        assertTrue(r.isPresent());
+        assertEquals(1000, r.get().getTotal());
+    }
+
+    @Test
+    public void invalidConstructorRangeThrows() {
+        assertThrows(IllegalArgumentException.class, () -> new DownloadRange(5, 2, 100));
+        assertThrows(IllegalArgumentException.class, () -> new DownloadRange(-1, 5, 100));
+        assertThrows(IllegalArgumentException.class, () -> new DownloadRange(0, 100, 100));
+    }
+
+    @Test
+    public void malformedNumbersReturnEmpty() {
+        assertFalse(DownloadRange.parse("bytes=abc-5", 100).isPresent());
+        assertFalse(DownloadRange.parse("bytes=5-abc", 100).isPresent());
+        assertFalse(DownloadRange.parse("bytes=0-5x", 100).isPresent());
     }
 }

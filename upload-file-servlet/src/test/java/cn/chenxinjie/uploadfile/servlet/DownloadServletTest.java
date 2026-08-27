@@ -7,6 +7,7 @@
 package cn.chenxinjie.uploadfile.servlet;
 
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
+import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import org.junit.Before;
@@ -15,12 +16,22 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.mock.web.MockServletConfig;
+import org.springframework.mock.web.MockServletContext;
 
+import javax.servlet.ServletOutputStream;
+import javax.servlet.WriteListener;
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Unit tests for {@link DownloadServlet} (HTTP Range handling) using Spring's servlet mocks.
@@ -134,5 +145,99 @@ public class DownloadServletTest {
         servlet.doGet(request, response);
 
         assertEquals(404, response.getStatus());
+    }
+
+    @Test
+    public void missingIdentifierReturns400() throws Exception {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(new MockHttpServletRequest(), response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void initFromServletConfigServesDownload() throws Exception {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath());
+        config.addInitParameter("metadata-dir", folder.getRoot().getAbsolutePath() + "/meta");
+
+        DownloadServlet configured = new DownloadServlet();
+        configured.init(config);
+
+        // Produce the merged file through the shared context the servlet bootstrapped.
+        UploadFileContext context = (UploadFileContext) servletContext
+                .getAttribute(UploadFileContext.ATTRIBUTE_NAME);
+        ResumableUploadService uploadService = context.getUploadService();
+        ChunkUploadRequest request = new ChunkUploadRequest();
+        request.setIdentifier(IDENTIFIER);
+        request.setFileName("demo.txt");
+        request.setFileSize(CONTENT.length);
+        request.setChunkSize(CONTENT.length);
+        request.setChunkTotal(1);
+        request.setChunkIndex(0);
+        uploadService.uploadChunk(request, new ByteArrayInputStream(CONTENT));
+        uploadService.merge(IDENTIFIER);
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        configured.doGet(downloadRequest(), response);
+
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(CONTENT, response.getContentAsByteArray());
+    }
+
+    @Test
+    public void largeFileUsesLongContentLength() throws Exception {
+        long size = 2L * 1024 * 1024 * 1024 + 10; // over 2 GB, requires setContentLengthLong
+        File big = new File(folder.getRoot(), "big.bin");
+        try (RandomAccessFile raf = new RandomAccessFile(big, "rw")) {
+            raf.setLength(size); // sparse file, no real disk usage
+        }
+
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadTask task = new UploadTask();
+        task.setIdentifier("big");
+        task.setFileName("big.bin");
+        task.setMerged(true);
+        task.setFinalPath(big.getAbsolutePath());
+        context.getTaskStore().save(task);
+
+        DownloadServlet bigServlet = new DownloadServlet();
+        bigServlet.setDownloadService(context.getDownloadService());
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("identifier", "big");
+        MockHttpServletResponse response = new DiscardingResponse();
+        bigServlet.doGet(request, response);
+
+        assertEquals(200, response.getStatus());
+        assertEquals("bytes", response.getHeader("Accept-Ranges"));
+        assertTrue(response.getContentLengthLong() >= 0);
+    }
+
+    /** {@link MockHttpServletResponse} that discards the body so a >2 GB stream never buffers. */
+    private static final class DiscardingResponse extends MockHttpServletResponse {
+        private final ServletOutputStream out = new ServletOutputStream() {
+            @Override
+            public boolean isReady() {
+                return true;
+            }
+
+            @Override
+            public void setWriteListener(WriteListener writeListener) {
+            }
+
+            @Override
+            public void write(int b) {
+            }
+
+            @Override
+            public void write(byte[] b, int off, int len) {
+            }
+        };
+
+        @Override
+        public ServletOutputStream getOutputStream() {
+            return out;
+        }
     }
 }

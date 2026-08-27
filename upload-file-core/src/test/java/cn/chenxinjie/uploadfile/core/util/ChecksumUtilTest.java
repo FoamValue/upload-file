@@ -71,4 +71,10 @@ public class ChecksumUtilTest {
         assertThrows(IllegalStateException.class,
                 () -> ChecksumUtil.checksum("NOPE", "abc".getBytes(StandardCharsets.UTF_8)));
     }
+
+    @Test
+    public void md5OfInputStreamMatchesByteArray() throws Exception {
+        assertEquals(ChecksumUtil.md5("abc".getBytes(StandardCharsets.UTF_8)),
+                ChecksumUtil.md5(new java.io.ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8))));
+    }
 }

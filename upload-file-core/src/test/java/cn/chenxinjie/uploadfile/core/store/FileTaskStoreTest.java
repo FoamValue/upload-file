@@ -12,6 +12,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Optional;
 import java.util.TreeSet;
 
@@ -158,5 +162,74 @@ public class FileTaskStoreTest {
 
         assertEquals(1, store.list().size());
         assertEquals("good1", store.list().iterator().next().getIdentifier());
+    }
+
+    @Test
+    public void constructorRejectsPathThatIsAFile() throws Exception {
+        File blocker = new File(folder.getRoot(), "blocker");
+        Files.write(blocker.toPath(), new byte[1]);
+        assertThrows(UncheckedIOException.class, () -> new FileTaskStore(blocker.toPath()));
+    }
+
+    @Test
+    public void getNullAndEmptyIdentifiersReturnEmpty() {
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertFalse(store.get(null).isPresent());
+        assertFalse(store.get("").isPresent());
+    }
+
+    @Test
+    public void jsonLiteralNullReadsAsEmpty() throws Exception {
+        Files.write(new File(folder.getRoot(), "n1.json").toPath(), "null".getBytes(StandardCharsets.UTF_8));
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertFalse(store.get("n1").isPresent());
+    }
+
+    @Test
+    public void jsonWithoutUploadedChunksReadsAsEmptySet() throws Exception {
+        // An explicit null must be normalized to an empty set (Gson's constructor-initialized
+        // default would otherwise hide this fixup path).
+        String json = "{\"identifier\":\"x1\",\"fileName\":\"demo.txt\",\"chunkTotal\":2,"
+                + "\"uploadedChunks\":null,\"merged\":false}";
+        Files.write(new File(folder.getRoot(), "x1.json").toPath(), json.getBytes(StandardCharsets.UTF_8));
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        UploadTask task = store.get("x1").get();
+        assertEquals(0, task.uploadedCount());
+        assertEquals(0, task.getUploadedChunks().size());
+    }
+
+    @Test
+    public void getOnDirectoryJsonThrows() throws Exception {
+        Files.createDirectory(new File(folder.getRoot(), "d1.json").toPath());
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertThrows(UncheckedIOException.class, () -> store.get("d1"));
+    }
+
+    @Test
+    public void saveWhenTargetIsDirectoryThrowsAndCleansTempFile() throws Exception {
+        Files.createDirectory(new File(folder.getRoot(), "e1.json").toPath());
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertThrows(UncheckedIOException.class, () -> store.save(sampleTask("e1")));
+        // The leftover temp file must have been removed by the finally block.
+        File[] leftovers = folder.getRoot().listFiles((dir, name) -> name.startsWith(".meta-"));
+        assertEquals(0, leftovers == null ? 0 : leftovers.length);
+    }
+
+    @Test
+    public void removeOnNonEmptyDirectoryThrows() throws Exception {
+        File dir = new File(folder.getRoot(), "r1.json");
+        Files.createDirectory(dir.toPath());
+        Files.write(new File(dir, "child").toPath(), new byte[1]);
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        assertThrows(UncheckedIOException.class, () -> store.remove("r1"));
+    }
+
+    @Test
+    public void listWhenRootBecomesAFileThrows() throws Exception {
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        File root = folder.getRoot();
+        Files.delete(root.toPath());
+        Files.write(root.toPath(), new byte[1]);
+        assertThrows(UncheckedIOException.class, store::list);
     }
 }

@@ -18,6 +18,8 @@ import org.junit.rules.TemporaryFolder;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.mock.web.MockPart;
+import org.springframework.mock.web.MockServletConfig;
+import org.springframework.mock.web.MockServletContext;
 
 import java.nio.charset.StandardCharsets;
 
@@ -233,5 +235,96 @@ public class UploadServletTest {
         assertEquals("Merge failed", result.getMessage());
         // Internal details (e.g. the absolute final path) must not leak to the client.
         assertFalse(result.getMessage().contains(folder.getRoot().getAbsolutePath()));
+    }
+
+    @Test
+    public void initFromServletConfigBuildsContext() throws Exception {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath());
+        config.addInitParameter("metadata-dir", folder.getRoot().getAbsolutePath() + "/meta");
+        UploadServlet configured = new UploadServlet();
+        configured.init(config);
+
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        configured.doPost(request, response);
+
+        assertEquals(200, response.getStatus());
+        UploadFileContext context = (UploadFileContext) servletContext
+                .getAttribute(UploadFileContext.ATTRIBUTE_NAME);
+        assertNotNull(context);
+        assertTrue(context.getUploadService().isChunkUploaded(IDENTIFIER, 0));
+    }
+
+    @Test
+    public void nonMultipartPostReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest(); // no multipart content type
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doPost(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void mergeStatusBlankIdentifierReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("action", "mergeStatus");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void mergeStatusUnsafeIdentifierReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("action", "mergeStatus");
+        request.setParameter("identifier", "../evil");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void progressUnsafeIdentifierReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("identifier", "../evil");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void emptyChunkTotalFallsBackToInvalidDefault() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.setParameter("chunkTotal", "");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doPost(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void nonNumericChunkTotalReturns400() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.setParameter("chunkTotal", "abc");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doPost(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void nonNumericSizesFallBackToDefaults() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.setParameter("fileSize", "abc");
+        request.setParameter("chunkSize", "");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doPost(request, response);
+
+        assertEquals(200, response.getStatus());
+        UploadProgress progress = new Gson().fromJson(response.getContentAsString(), UploadProgress.class);
+        assertEquals(1, progress.getUploadedCount());
     }
 }

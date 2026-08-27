@@ -59,4 +59,17 @@ public class UploadProgressTest {
         assertEquals(0, progress.getProgressPercent());
         assertTrue(progress.getUploadedChunks().isEmpty());
     }
+
+    @Test
+    public void gettersExposeAllTaskFields() {
+        UploadTask task = task(3);
+        task.markUploaded(0);
+
+        UploadProgress progress = UploadProgress.from(task);
+        assertEquals("p1", progress.getIdentifier());
+        assertEquals("demo.bin", progress.getFileName());
+        assertEquals(100, progress.getFileSize());
+        assertEquals(50, progress.getChunkSize());
+        assertEquals(3, progress.getChunkTotal());
+    }
 }

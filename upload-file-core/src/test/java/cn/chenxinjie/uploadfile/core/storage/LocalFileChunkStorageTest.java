@@ -11,7 +11,10 @@ import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
 import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
@@ -19,6 +22,7 @@ import java.util.Set;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class LocalFileChunkStorageTest {
@@ -92,5 +96,66 @@ public class LocalFileChunkStorageTest {
 
         Set<String> identifiers = storage.listIdentifiers();
         assertEquals(new HashSet<>(Arrays.asList("f1", "f2")), identifiers);
+    }
+
+    @Test
+    public void stringConstructorWorks() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().getAbsolutePath());
+        storage.saveChunk("s1", 0, new ByteArrayInputStream("x".getBytes()));
+        assertTrue(storage.chunkExists("s1", 0));
+    }
+
+    @Test
+    public void constructorRejectsPathThatIsAFile() throws Exception {
+        File blocker = new File(folder.getRoot(), "blocker");
+        Files.write(blocker.toPath(), new byte[1]);
+        assertThrows(UncheckedIOException.class, () -> new LocalFileChunkStorage(blocker.toPath()));
+    }
+
+    @Test
+    public void listChunksIgnoresNonNumericFiles() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        storage.saveChunk("f1", 1, new ByteArrayInputStream("1".getBytes()));
+        // Leftover temp files or stray files in the chunk dir must be ignored.
+        java.nio.file.Path chunkDir = folder.getRoot().toPath().resolve("f1");
+        Files.write(chunkDir.resolve("abc.part"), new byte[1]);
+        Files.write(chunkDir.resolve(".upload-xyz.part"), new byte[1]);
+
+        List<Integer> chunks = storage.listChunks("f1");
+        assertEquals(Arrays.asList(1), chunks);
+    }
+
+    @Test
+    public void deleteChunkOnNonEmptyDirectoryThrows() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        java.nio.file.Path dir = folder.getRoot().toPath().resolve("d1");
+        java.nio.file.Path chunk = dir.resolve("0.part");
+        Files.createDirectories(chunk);
+        Files.write(chunk.resolve("child"), new byte[1]);
+        assertThrows(UncheckedIOException.class, () -> storage.deleteChunk("d1", 0));
+    }
+
+    @Test
+    public void listIdentifiersWhenRootIsAFileReturnsEmpty() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        File root = folder.getRoot();
+        Files.delete(root.toPath());
+        Files.write(root.toPath(), new byte[1]);
+        assertTrue(storage.listIdentifiers().isEmpty());
+    }
+
+    @Test
+    public void deleteChunksFailurePropagates() throws Exception {
+        LocalFileChunkStorage storage = new LocalFileChunkStorage(folder.getRoot().toPath());
+        java.nio.file.Path dir = folder.getRoot().toPath().resolve("h");
+        java.nio.file.Path sub = dir.resolve("sub");
+        Files.createDirectories(sub);
+        Files.write(sub.resolve("x"), new byte[1]);
+        sub.toFile().setWritable(false);
+        try {
+            assertThrows(UncheckedIOException.class, () -> storage.deleteChunks("h"));
+        } finally {
+            sub.toFile().setWritable(true);
+        }
     }
 }

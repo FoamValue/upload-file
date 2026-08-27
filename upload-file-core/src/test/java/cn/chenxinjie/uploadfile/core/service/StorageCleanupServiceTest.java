@@ -21,6 +21,8 @@ import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -33,6 +35,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class StorageCleanupServiceTest {
@@ -290,6 +293,25 @@ public class StorageCleanupServiceTest {
 
     private static InputStream stream(String data) {
         return new ByteArrayInputStream(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void orphanDeletionFailurePropagates() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        // An orphan merged dir whose contents cannot be deleted (read-only subdir) must
+        // surface the failure instead of silently leaving the data behind.
+        File orphan = new File(mergedDir(), "orphan");
+        File sub = new File(orphan, "sub");
+        Files.createDirectories(sub.toPath());
+        Files.write(new File(sub, "x.txt").toPath(), new byte[1]);
+        sub.setWritable(false);
+        try {
+            StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, true);
+            assertThrows(UncheckedIOException.class, svc::cleanup);
+        } finally {
+            sub.setWritable(true);
+        }
     }
 
     private static class FailingStore implements TaskStore {

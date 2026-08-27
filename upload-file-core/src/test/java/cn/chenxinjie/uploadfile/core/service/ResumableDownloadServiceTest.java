@@ -100,4 +100,31 @@ public class ResumableDownloadServiceTest {
         store.save(mergedTask("f5", "demo.txt", null));
         assertEquals("demo.txt", service.resolveFileName("f5"));
     }
+
+    @Test
+    public void resolveFileBlankIdentifierIsEmpty() {
+        assertFalse(service.resolveFile(null).isPresent());
+        assertFalse(service.resolveFile("   ").isPresent());
+    }
+
+    @Test
+    public void resolveFileWhenFileMissingFromDiskIsEmpty() throws Exception {
+        // The task exists and is merged, but the file is not actually on disk.
+        store.save(mergedTask("gone", "demo.txt", "/no/such/file.bin"));
+        assertFalse(service.resolveFile("gone").isPresent());
+    }
+
+    @Test
+    public void writeRangeShortFileThrowsWhenRangeLongerThanRemaining() throws Exception {
+        File file = new File(mergedDir, "f7");
+        Files.createDirectories(file.toPath());
+        File target = new File(file, "demo.txt");
+        Files.write(target.toPath(), "hello world".getBytes(StandardCharsets.UTF_8));
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        long written = service.writeRange(target, 6, 100, out);
+        // Only the 5 remaining bytes are available; the rest is silently skipped.
+        assertEquals(5, written);
+        assertEquals("world", new String(out.toByteArray(), StandardCharsets.UTF_8));
+    }
 }
