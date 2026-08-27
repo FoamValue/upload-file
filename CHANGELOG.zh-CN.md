@@ -29,6 +29,22 @@
 - `UploadTask` 新增 `mergeState` / `mergeError` / `mergeStartedAt`；旧 JSON 元数据按 `NONE` 处理（向后兼容）
 - merge 失败时删除临时文件；残留临时文件由孤儿清理（T3）回收
 - `metadata-store=auto` 完全复刻 rc.1 行为（有 `metadata-dir` → file，否则 memory）
+- **merge 先持久化合并状态再删除分片**；若元数据保存失败，分片仍在磁盘上，任务保持可恢复
+- 上传服务与清理服务共享 `IdentifierLock`，清理与同一 identifier 的上传/合并互斥（持锁二次校验）
+- 后续分片声明的元数据（`chunkTotal` / `chunkSize` / `fileSize` / `fileName`）与首片不一致时返回 `400` 拒绝
+
+### 修复
+
+- `FileTaskStore.list()` 遇到残留 `.meta-*.json` 临时文件或损坏元数据不再抛异常，改为跳过，与 JDBC/Redis 存储行为对齐
+- `StorageCleanupService` 在 `stop()` 之后可再次 `start()`
+- `submitMerge()` 在 executor 拒收任务时回滚状态为 `NONE`，任务不再卡在 pending 合并
+- 内存存储下跳过孤儿清理，避免重启后误删全部磁盘数据
+- merge 失败响应不再泄露内部文件路径（细节改为服务端日志记录）
+
+### 安全
+
+- 新增分片大小上限：Spring Boot `max-chunk-size` / Servlet `chunk.max-size`，超限分片在记录前即被拒绝，防磁盘耗尽 DoS
+- `MemoryTaskStore` 与其它存储一致校验 identifier（路径穿越的纵深防御）
 
 ### 兼容性
 

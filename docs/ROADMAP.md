@@ -4,20 +4,21 @@
 
 ## Current Optimization Plan
 
-- The P0 items (5) are planned for **V1.0.0**; see [V1.0.0 Task Development Plan](PLAN-V1.0.0-rc.2.md).
+- The P0 items (5) are **implemented in `V1.0.0-rc.2`** (see the [V1.0.0 Task Development Plan](PLAN-V1.0.0-rc.2.md) for the original breakdown).
 - P1/P2 items are pending confirmation.
 
 ## Complete Optimization List
 
-The following are optional directions for future releases; none are implemented in the current version. Sorted by priority, highest first.
+The following are optional directions for future releases. P0 items are implemented in `1.0.0-rc.2`;
+P1/P2 items are not yet implemented. Sorted by priority, highest first.
 
 | Priority | Direction | Problem it solves | Notes | Proposed date | Planned release version |
 | --- | --- | --- | --- | --- | --- |
-| P0 | Expired-task cleanup (TTL/GC) | incomplete tasks and leftover chunks have no expiry mechanism and accumulate indefinitely on a long-running deployment | scheduled cleanup or configurable TTL built on `UploadTask.updateTime` | 2026-08-25 | V1.0.0 |
-| P0 | Atomic merge | a crash mid-merge leaves a corrupt file | merge to a temp file in the same dir, rename on success, then update metadata | 2026-08-25 | V1.0.0 |
-| P0 | Orphan data GC | leftover chunks/files cannot be reclaimed after metadata loss | startup scan + periodic diff between TaskStore and disk, clean orphans | 2026-08-25 | V1.0.0 |
-| P0 | Async merge | large-file merge blocks the HTTP request and may time out | task queue + callback/polling for progress | 2026-08-25 | V1.0.0 |
-| P0 | Pluggable metadata storage | multi-node / high availability | Redis/DB-backed TaskStore (SPI already provides the extension point) | 2026-08-25 | V1.0.0 |
+| P0 ✅ | Expired-task cleanup (TTL/GC) | incomplete tasks and leftover chunks have no expiry mechanism and accumulate indefinitely on a long-running deployment | scheduled cleanup or configurable TTL built on `UploadTask.updateTime` | 2026-08-25 | implemented in V1.0.0-rc.2 |
+| P0 ✅ | Atomic merge | a crash mid-merge leaves a corrupt file | merge to a temp file in the same dir, rename on success, then update metadata | 2026-08-25 | implemented in V1.0.0-rc.2 |
+| P0 ✅ | Orphan data GC | leftover chunks/files cannot be reclaimed after metadata loss | startup scan + periodic diff between TaskStore and disk, clean orphans | 2026-08-25 | implemented in V1.0.0-rc.2 |
+| P0 ✅ | Async merge | large-file merge blocks the HTTP request and may time out | task queue + callback/polling for progress | 2026-08-25 | implemented in V1.0.0-rc.2 |
+| P0 ✅ | Pluggable metadata storage | multi-node / high availability | Redis/DB-backed TaskStore (SPI already provides the extension point) | 2026-08-25 | implemented in V1.0.0-rc.2 |
 | P1 | Multi-tenancy | multiple people/businesses share one deployment | prefix identifier with a namespace; invisible across tenants, per-tenant quotas | 2026-08-25 | None (updated dynamically) |
 | P1 | Quota & rate limiting | per-user capacity cap, global throttling | upload/download rate limit, total capacity and per-file size quotas | 2026-08-25 | None (updated dynamically) |
 | P1 | Instant upload (policy B) | re-uploading large files wastes bandwidth and time | served instantly only when the `identifier` exists in the `TaskStore` with `merged=true` and the final file is on disk; check runs on `getProgress` or the first `uploadChunk`; prerequisite: configure `upload-file.metadata-dir` (`FileTaskStore`), otherwise records are lost on restart; boundary: files manually copied into `files/<id>/` are not instant-uploaded | 2026-08-25 | None (updated dynamically) |

@@ -10,6 +10,7 @@ import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 
 import java.io.File;
 import java.io.IOException;
@@ -44,6 +45,7 @@ public class StorageCleanupService {
     private final File mergedFileDir;
     private final long taskTtlMillis;
     private final boolean orphanEnabled;
+    private final IdentifierLock identifierLock;
 
     private ScheduledExecutorService scheduler = newScheduler();
 
@@ -60,11 +62,21 @@ public class StorageCleanupService {
 
     public StorageCleanupService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
                                  long taskTtlMillis, boolean orphanEnabled) {
+        this(taskStore, chunkStorage, mergedFileDir, taskTtlMillis, orphanEnabled, null);
+    }
+
+    /**
+     * Creates the service with an optional shared lock; pass the same instance used by the
+     * {@link ResumableUploadService} so cleanup is mutually exclusive with in-flight uploads.
+     */
+    public StorageCleanupService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
+                                 long taskTtlMillis, boolean orphanEnabled, IdentifierLock identifierLock) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.chunkStorage = Objects.requireNonNull(chunkStorage, "chunkStorage");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
         this.taskTtlMillis = taskTtlMillis;
         this.orphanEnabled = orphanEnabled;
+        this.identifierLock = identifierLock;
     }
 
     /**
@@ -135,9 +147,17 @@ public class StorageCleanupService {
             long updateTime = task.getUpdateTime();
             if (updateTime > 0 && now - updateTime > taskTtlMillis) {
                 String identifier = task.getIdentifier();
-                // Remove the chunks first so no orphan chunk data is left behind.
-                chunkStorage.deleteChunks(identifier);
-                taskStore.remove(identifier);
+                synchronized (lockFor(identifier)) {
+                    // Re-check under the lock so a task that was refreshed by an in-flight upload
+                    // while we were scanning is not wrongly deleted.
+                    UploadTask current = taskStore.get(identifier).orElse(null);
+                    if (current != null && !current.isMerged()
+                            && current.getUpdateTime() > 0 && now - current.getUpdateTime() > taskTtlMillis) {
+                        // Remove the chunks first so no orphan chunk data is left behind.
+                        chunkStorage.deleteChunks(identifier);
+                        taskStore.remove(identifier);
+                    }
+                }
             }
         }
     }
@@ -154,8 +174,14 @@ public class StorageCleanupService {
         }
         // Orphan chunks: on-disk chunk dirs with no task record.
         for (String identifier : chunkStorage.listIdentifiers()) {
-            if (!known.contains(identifier)) {
-                chunkStorage.deleteChunks(identifier);
+            if (known.contains(identifier)) {
+                continue;
+            }
+            synchronized (lockFor(identifier)) {
+                // Re-check after acquiring the lock: a task may have been created while scanning.
+                if (!hasTask(identifier)) {
+                    chunkStorage.deleteChunks(identifier);
+                }
             }
         }
         // Orphan merged files: merged-file dirs with no task record.
@@ -163,11 +189,34 @@ public class StorageCleanupService {
             File[] children = mergedFileDir.listFiles(File::isDirectory);
             if (children != null) {
                 for (File child : children) {
-                    if (!known.contains(child.getName())) {
-                        deleteDirectory(child.toPath());
+                    String identifier = child.getName();
+                    if (known.contains(identifier)) {
+                        continue;
+                    }
+                    synchronized (lockFor(identifier)) {
+                        if (!hasTask(identifier)) {
+                            deleteDirectory(child.toPath());
+                        }
                     }
                 }
             }
+        }
+    }
+
+    private Object lockFor(String identifier) {
+        return identifierLock == null ? new Object() : identifierLock.forIdentifier(identifier);
+    }
+
+    /**
+     * Returns whether a task exists for the identifier; an on-disk name that is not a valid
+     * identifier (e.g. contains a path separator) can never be a real task, so it is treated
+     * as absent without letting the lookup fail the whole cleanup run.
+     */
+    private boolean hasTask(String identifier) {
+        try {
+            return taskStore.get(identifier).isPresent();
+        } catch (IllegalArgumentException e) {
+            return false;
         }
     }
 

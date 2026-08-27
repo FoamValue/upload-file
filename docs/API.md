@@ -43,7 +43,9 @@ Response `200`:
 
 Notes: re-uploading the same chunk is skipped (idempotent); the current progress is returned.
 
-Errors (`400`): invalid parameters, MD5 mismatch, task already merged.
+Errors (`400`): invalid parameters, MD5 mismatch, task already merged, chunk metadata inconsistent
+with the first chunk (`chunkTotal` / `chunkSize` / `fileSize` / `fileName`), chunk exceeding
+`max-chunk-size` / `chunk.max-size`.
 
 ## 2. Query Upload Progress
 
@@ -76,6 +78,49 @@ Response `200`:
 ```
 
 Errors (`400`): task not found, chunks incomplete, merged size does not match `fileSize`.
+
+## 3.1 Submit an Async Merge
+
+```
+POST /upload?action=mergeAsync&identifier=<identifier>
+```
+
+Submits the merge to a background executor and returns the current status with HTTP `202`.
+Submitting the same identifier while `PENDING`/`RUNNING` is idempotent. While a merge is
+`PENDING`/`RUNNING`/`SUCCEEDED`, new chunk uploads are rejected.
+
+Response `202`:
+
+```json
+{
+  "identifier": "55e1c5ec9e2389c5be429808c9800131",
+  "state": "PENDING",
+  "merged": false
+}
+```
+
+State machine: `NONE -> PENDING -> RUNNING -> SUCCEEDED/FAILED`.
+
+## 3.2 Query the Async Merge Status
+
+```
+GET /upload?action=mergeStatus&identifier=<identifier>
+```
+
+Returns the current async-merge status; a task that was never submitted (or does not exist)
+reports `NONE`. A synchronously merged task reports `SUCCEEDED`.
+
+```json
+{
+  "identifier": "55e1c5ec9e2389c5be429808c9800131",
+  "state": "SUCCEEDED",
+  "merged": true,
+  "finalPath": "/data/upload/files/55e1c5ec9e2389c5be429808c9800131/demo.bin",
+  "finalFileSize": 11534336
+}
+```
+
+On `FAILED`, the `message` field carries the server-side error reason.
 
 ## 4. Download (Resumable)
 

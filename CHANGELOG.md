@@ -29,6 +29,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `UploadTask` gains `mergeState` / `mergeError` / `mergeStartedAt`; old JSON metadata reads as `NONE` (backward compatible)
 - The merge temp file is removed on failure; leftover temp files are reclaimed by the orphan GC (T3)
 - `metadata-store=auto` reproduces the rc.1 behavior (file when `metadata-dir` is set, otherwise memory)
+- **Merge state is persisted before the chunks are deleted**; if the metadata save fails the chunks stay on disk and the task remains recoverable
+- The upload service and the cleanup service share an `IdentifierLock`, so cleanup never races an in-flight upload/merge of the same identifier (double-checked under the lock)
+- Later chunks whose declared metadata (`chunkTotal` / `chunkSize` / `fileSize` / `fileName`) disagrees with the first chunk are rejected with `400`
+
+### Fixed
+
+- `FileTaskStore.list()` no longer fails on a leftover `.meta-*.json` temp file or a corrupt metadata file; such records are skipped, matching the JDBC/Redis stores
+- `StorageCleanupService` is restartable after `stop()`
+- `submitMerge()` rolls the state back to `NONE` when the executor rejects the task, so it is never stuck in a pending merge
+- Orphan-data GC is skipped for the in-memory store, preventing all on-disk data from being deleted after a restart
+- Merge failure responses no longer leak internal file paths (details are logged server-side)
+
+### Security
+
+- New `max-chunk-size` (Spring Boot) / `chunk.max-size` (Servlet init-param) limit rejects oversized chunks before they are recorded, guarding against disk-exhaustion DoS
+- `MemoryTaskStore` now validates identifiers like the other stores (defense-in-depth against path traversal)
 
 ### Compatibility
 

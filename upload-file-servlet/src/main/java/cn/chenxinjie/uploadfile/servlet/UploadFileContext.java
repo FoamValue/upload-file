@@ -14,6 +14,7 @@ import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
@@ -99,8 +100,11 @@ public final class UploadFileContext {
         ChunkStorage chunkStorage = new LocalFileChunkStorage(Paths.get(storageDir, "chunks"));
         File mergedDir = Paths.get(storageDir, "files").toFile();
 
+        // A single shared lock keeps the upload service and the cleanup service mutually
+        // exclusive for the same identifier.
+        IdentifierLock identifierLock = new IdentifierLock();
         ResumableUploadService uploadService = new ResumableUploadService(
-                store, chunkStorage, mergedDir, true, config.mergeFsync, config.mergeAtomic);
+                store, chunkStorage, mergedDir, true, config.mergeFsync, config.mergeAtomic, identifierLock);
         if (config.maxChunkSize > 0) {
             uploadService.setMaxChunkBytes(config.maxChunkSize);
         }
@@ -124,7 +128,8 @@ public final class UploadFileContext {
         ResumableDownloadService downloadService = new ResumableDownloadService(store, mergedDir);
 
         StorageCleanupService cleanupService = new StorageCleanupService(
-                store, chunkStorage, mergedDir, config.cleanupTaskTtlMillis, config.cleanupOrphanEnabled);
+                store, chunkStorage, mergedDir, config.cleanupTaskTtlMillis, config.cleanupOrphanEnabled,
+                identifierLock);
         if (config.cleanupEnabled) {
             cleanupService.start(config.cleanupIntervalMillis);
             if (config.cleanupRunOnStartup) {

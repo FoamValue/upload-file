@@ -14,6 +14,7 @@ import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 import cn.chenxinjie.uploadfile.servlet.DownloadServlet;
 import cn.chenxinjie.uploadfile.servlet.UploadServlet;
 import org.apache.commons.logging.Log;
@@ -110,16 +111,28 @@ public class UploadFileAutoConfiguration {
         return new LocalFileChunkStorage(Paths.get(properties.getStorageDir(), "chunks"));
     }
 
+    /**
+     * A single shared lock keeps the upload service and the cleanup service mutually exclusive
+     * for the same identifier.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public IdentifierLock uploadFileIdentifierLock() {
+        return new IdentifierLock();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ResumableUploadService resumableUploadService(TaskStore taskStore,
                                                          ChunkStorage chunkStorage,
                                                          UploadFileProperties properties,
+                                                         IdentifierLock identifierLock,
                                                          ObjectProvider<ExecutorService> asyncExecutorProvider) {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         ResumableUploadService service = new ResumableUploadService(
                 taskStore, chunkStorage, mergedDir,
-                properties.isVerifyChecksum(), properties.isMergeFsync(), properties.isMergeAtomic());
+                properties.isVerifyChecksum(), properties.isMergeFsync(), properties.isMergeAtomic(),
+                identifierLock);
         if (properties.getMaxChunkSize() > 0) {
             service.setMaxChunkBytes(properties.getMaxChunkSize());
         }
@@ -142,11 +155,13 @@ public class UploadFileAutoConfiguration {
     @ConditionalOnMissingBean
     public StorageCleanupService storageCleanupService(TaskStore taskStore,
                                                        ChunkStorage chunkStorage,
-                                                       UploadFileProperties properties) {
+                                                       UploadFileProperties properties,
+                                                       IdentifierLock identifierLock) {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         StorageCleanupService cleanup = new StorageCleanupService(
                 taskStore, chunkStorage, mergedDir,
-                properties.getCleanupTaskTtl().toMillis(), properties.isCleanupOrphanEnabled());
+                properties.getCleanupTaskTtl().toMillis(), properties.isCleanupOrphanEnabled(),
+                identifierLock);
         cleanup.setErrorListener(t -> LOG.warn("Upload-file storage cleanup failed", t));
         if (properties.isCleanupEnabled()) {
             cleanup.start(properties.getCleanupInterval().toMillis());

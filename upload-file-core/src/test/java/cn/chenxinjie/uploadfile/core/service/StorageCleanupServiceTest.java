@@ -12,6 +12,7 @@ import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -26,6 +27,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.Assert.assertEquals;
@@ -223,6 +225,49 @@ public class StorageCleanupServiceTest {
 
         assertTrue(chunks.chunkExists("orphan", 0));
         assertTrue(orphanDir.isDirectory());
+    }
+
+    @Test
+    public void cleanupHonorsSharedIdentifierLock() throws Exception {
+        IdentifierLock lock = new IdentifierLock();
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        UploadTask task = task("lock1", 2, System.currentTimeMillis() - 2 * HOUR);
+        store.save(task);
+        chunks.saveChunk("lock1", 0, stream("a"));
+
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, false, lock);
+        AtomicBoolean done = new AtomicBoolean(false);
+        Thread t;
+        synchronized (lock.forIdentifier("lock1")) {
+            t = new Thread(() -> {
+                svc.cleanup();
+                done.set(true);
+            });
+            t.start();
+            Thread.sleep(150);
+            // The cleanup pass must block while the shared lock is held.
+            assertFalse(done.get());
+        }
+        t.join();
+        assertTrue(done.get());
+        assertFalse(store.get("lock1").isPresent());
+        assertFalse(chunks.chunkExists("lock1", 0));
+    }
+
+    @Test
+    public void orphanCleanupIgnoresOnDiskNamesThatAreNotValidIdentifiers() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        store.save(task("keep", 1, System.currentTimeMillis()));
+        // A backslash is a legal filename on unix but never a valid task identifier.
+        File weird = new File(mergedDir(), "evil\\name");
+        assertTrue(weird.mkdirs());
+
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, true);
+        svc.cleanup(); // must not throw
+
+        assertFalse(weird.exists());
     }
 
     @Test

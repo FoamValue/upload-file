@@ -15,6 +15,7 @@ import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
 import java.io.BufferedOutputStream;
@@ -44,16 +45,13 @@ public class ResumableUploadService {
 
     public static final int DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 
-    /** Number of lock buckets; fixed size to avoid unbounded growth. */
-    private static final int LOCK_COUNT = 64;
-
     private final TaskStore taskStore;
     private final ChunkStorage chunkStorage;
     private final File mergedFileDir;
     private final boolean verifyChecksum;
     private final boolean mergeFsync;
     private final boolean mergeAtomic;
-    private final Object[] locks = new Object[LOCK_COUNT];
+    private final IdentifierLock identifierLock;
 
     /** Maximum bytes accepted for a single chunk; 0 or negative means unlimited. */
     private volatile long maxChunkBytes;
@@ -71,15 +69,23 @@ public class ResumableUploadService {
 
     public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
                                   boolean verifyChecksum, boolean mergeFsync, boolean mergeAtomic) {
+        this(taskStore, chunkStorage, mergedFileDir, verifyChecksum, mergeFsync, mergeAtomic, new IdentifierLock());
+    }
+
+    /**
+     * Creates the service with a caller-provided shared lock; pass the same instance to
+     * {@link StorageCleanupService} so cleanup is mutually exclusive with in-flight uploads.
+     */
+    public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
+                                  boolean verifyChecksum, boolean mergeFsync, boolean mergeAtomic,
+                                  IdentifierLock identifierLock) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.chunkStorage = Objects.requireNonNull(chunkStorage, "chunkStorage");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
         this.verifyChecksum = verifyChecksum;
         this.mergeFsync = mergeFsync;
         this.mergeAtomic = mergeAtomic;
-        for (int i = 0; i < LOCK_COUNT; i++) {
-            locks[i] = new Object();
-        }
+        this.identifierLock = Objects.requireNonNull(identifierLock, "identifierLock");
     }
 
     /**
@@ -106,7 +112,7 @@ public class ResumableUploadService {
     private Object lockFor(String identifier) {
         // Hash the identifier into a fixed-size bucket so concurrent uploads of the
         // same file are serialized without allocating an unbounded number of locks.
-        return locks[(identifier.hashCode() & 0x7fffffff) % LOCK_COUNT];
+        return identifierLock.forIdentifier(identifier);
     }
 
     /**
@@ -140,6 +146,10 @@ public class ResumableUploadService {
                 task = UploadTask.from(request);
                 task.setChunkSize(chunkSize);
                 taskStore.save(task);
+            } else {
+                // The metadata captured from the first chunk is authoritative; reject later chunks
+                // whose declared metadata disagrees so an inconsistent client cannot corrupt the merge.
+                validateConsistentMetadata(request, chunkSize, task);
             }
             if (task.isMerged()) {
                 throw new IllegalStateException("Task already merged, cannot upload chunks: " + identifier);
@@ -183,6 +193,27 @@ public class ResumableUploadService {
                 taskStore.save(task);
             }
             return UploadProgress.from(task);
+        }
+    }
+
+    private static void validateConsistentMetadata(ChunkUploadRequest request, long chunkSize, UploadTask task) {
+        String identifier = task.getIdentifier();
+        if (request.getChunkTotal() != task.getChunkTotal()) {
+            throw new IllegalArgumentException("chunkTotal mismatch: expected "
+                    + task.getChunkTotal() + ", got " + request.getChunkTotal() + " (" + identifier + ")");
+        }
+        if (task.getChunkSize() > 0 && chunkSize != task.getChunkSize()) {
+            throw new IllegalArgumentException("chunkSize mismatch: expected "
+                    + task.getChunkSize() + ", got " + chunkSize + " (" + identifier + ")");
+        }
+        if (request.getFileSize() > 0 && task.getFileSize() > 0 && request.getFileSize() != task.getFileSize()) {
+            throw new IllegalArgumentException("fileSize mismatch: expected "
+                    + task.getFileSize() + ", got " + request.getFileSize() + " (" + identifier + ")");
+        }
+        if (StringUtil.isNotBlank(request.getFileName())
+                && !request.getFileName().equals(task.getFileName())) {
+            throw new IllegalArgumentException("fileName mismatch: expected "
+                    + task.getFileName() + ", got " + request.getFileName() + " (" + identifier + ")");
         }
     }
 

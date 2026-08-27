@@ -16,6 +16,7 @@ import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -33,6 +34,7 @@ import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -464,6 +466,70 @@ public class ResumableUploadServiceTest {
         // Chunks can still be uploaded afterwards.
         svc.uploadChunk(request("d6", 0, 1), new ByteArrayInputStream(chunk));
         assertEquals(1, svc.getProgress("d6").getUploadedCount());
+    }
+
+    @Test
+    public void chunkTotalMismatchAcrossChunksRejected() throws Exception {
+        service.uploadChunk(request("m1", 0, 2), new ByteArrayInputStream("a".getBytes(StandardCharsets.UTF_8)));
+        assertThrows(IllegalArgumentException.class,
+                () -> service.uploadChunk(request("m1", 1, 3), new ByteArrayInputStream("b".getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void chunkSizeMismatchAcrossChunksRejected() throws Exception {
+        service.uploadChunk(request("m2", 0, 2), new ByteArrayInputStream("a".getBytes(StandardCharsets.UTF_8)));
+        ChunkUploadRequest req = request("m2", 1, 2);
+        req.setChunkSize(CHUNK_SIZE * 2);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.uploadChunk(req, new ByteArrayInputStream("b".getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void fileSizeMismatchAcrossChunksRejected() throws Exception {
+        service.uploadChunk(request("m3", 0, 2), new ByteArrayInputStream("a".getBytes(StandardCharsets.UTF_8)));
+        ChunkUploadRequest req = request("m3", 1, 2);
+        req.setFileSize(CHUNK_SIZE * 2 + 1);
+        assertThrows(IllegalArgumentException.class,
+                () -> service.uploadChunk(req, new ByteArrayInputStream("b".getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void fileNameMismatchAcrossChunksRejected() throws Exception {
+        service.uploadChunk(request("m4", 0, 2), new ByteArrayInputStream("a".getBytes(StandardCharsets.UTF_8)));
+        ChunkUploadRequest req = request("m4", 1, 2);
+        req.setFileName("other.bin");
+        assertThrows(IllegalArgumentException.class,
+                () -> service.uploadChunk(req, new ByteArrayInputStream("b".getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void sharedIdentifierLockSerializesConcurrentUploads() throws Exception {
+        IdentifierLock lock = new IdentifierLock();
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-lock").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-lock").toPath()),
+                new File(folder.getRoot(), "files-lock"),
+                true, true, true, lock);
+
+        AtomicBoolean completed = new AtomicBoolean(false);
+        Thread t;
+        synchronized (lock.forIdentifier("lock1")) {
+            t = new Thread(() -> {
+                try {
+                    svc.uploadChunk(request("lock1", 0, 1), new ByteArrayInputStream(new byte[1]));
+                    completed.set(true);
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            t.start();
+            Thread.sleep(150);
+            // The upload must block while the shared lock is held.
+            assertFalse(completed.get());
+        }
+        t.join();
+        assertTrue(completed.get());
+        assertEquals(1, svc.getProgress("lock1").getUploadedCount());
     }
 
     private ResumableUploadService asyncService() throws IOException {

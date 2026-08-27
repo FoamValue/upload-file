@@ -3,6 +3,8 @@
 > 🇨🇳 [简体中文](PLAN-V1.0.0-rc.2.zh-CN.md)
 >
 > Corresponds to the P0 items in [Future Optimization Directions](ROADMAP.md) ("Complete Optimization List"), targeting version **V1.0.0-rc.2**.
+>
+> ✅ **Status: all 5 P0 items (T1–T5) are implemented and covered by tests in `1.0.0-rc.2`.** In addition to the plan, the release ships robustness hardening: merge state persisted before chunk cleanup, a shared `IdentifierLock` between upload and cleanup, cross-chunk metadata consistency checks, a chunk size cap, and store-side identifier validation in `MemoryTaskStore`.
 
 ## 1. Goal & Scope
 

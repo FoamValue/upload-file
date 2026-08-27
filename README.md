@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.1` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.2` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
-| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
+| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.1` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.2` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -19,17 +19,22 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Resumable upload** – the server records uploaded chunks; clients can pause and resume at any time
 - **Chunk integrity** – optional per-chunk MD5 verification
 - **Chunk merge** – merge chunks in order, validate the final file size, and clean up chunks automatically
+- **Atomic merge** – merge to a temp file, optionally fsync, then atomically rename into place; a mid-write failure never leaves a corrupt file
+- **Async merge** – run the merge in the background and poll its status (`mergeAsync` / `mergeStatus`)
+- **Expired-task & orphan cleanup** – TTL-based cleanup of incomplete tasks and opt-in orphan-data GC
 - **Resumable download** – HTTP `Range` based resumable download (`206 Partial Content`)
-- **Metadata persistence** – upload progress can be persisted as JSON and survives server restarts
+- **Metadata persistence** – upload progress can be persisted as JSON, or backed by JDBC / Redis via the `TaskStore` SPI
 - **Multiple integrations** – plain Servlet, Spring Boot auto-configuration, or direct core API
 
 ## Modules
 
 | Module | Description | How to use |
 | --- | --- | --- |
-| `upload-file-core` | Core pure-Java components: models, checksum, storage SPI, upload/download services | Any Java/Maven project |
+| `upload-file-core` | Core pure-Java components: models, checksum, storage SPI, upload/download/cleanup services | Any Java/Maven project |
 | `upload-file-servlet` | Servlet 3.0+ integration: chunk-upload Servlet and Range-download Servlet | Servlet container projects |
 | `upload-file-spring-boot-starter` | Spring Boot 2.x auto-configuration, zero-config out of the box | Spring Boot projects |
+| `upload-file-store-jdbc` | Optional: JDBC-backed `TaskStore` (auto table creation, H2 test) | when `metadata-store=jdbc` |
+| `upload-file-store-redis` | Optional: Redis-backed `TaskStore` (Jedis) | when `metadata-store=redis` |
 | `example/upload-file-demo` | Demo app: Spring Boot + frontend page showing the full resumable workflow | — |
 
 ## Quick Start
@@ -40,7 +45,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.1</version>
+    <version>1.0.0-rc.2</version>
 </dependency>
 ```
 
@@ -58,6 +63,8 @@ Available endpoints after startup:
 - `POST /upload` – upload one chunk
 - `GET /upload?action=progress&identifier=xxx` – query upload progress
 - `POST /upload?action=merge&identifier=xxx` – merge chunks
+- `POST /upload?action=mergeAsync&identifier=xxx` – submit an async merge (HTTP `202`), poll with `mergeStatus`
+- `GET /upload?action=mergeStatus&identifier=xxx` – query the async merge status
 - `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download)
 
 ### Option 2: Plain Servlet container
@@ -99,11 +106,27 @@ UploadResult result = service.merge(identifier);
 | --- | --- | --- |
 | `upload-file.storage-dir` | `./upload-file-data` | Root dir for chunks and merged files |
 | `upload-file.metadata-dir` | *(empty)* | Task metadata dir; empty = in-memory (lost on restart) |
+| `upload-file.metadata-store` | `auto` | `auto` (file when `metadata-dir` set, otherwise memory) / `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | Verify per-chunk MD5 |
 | `upload-file.upload-url` | `/upload` | Upload servlet mapping |
 | `upload-file.download-url` | `/download` | Download servlet mapping |
-| `upload-file.max-chunk-size` | `-1` | Max chunk size in bytes (multipart); `-1` = unlimited |
+| `upload-file.max-chunk-size` | `-1` | Max bytes per chunk: enforced at the multipart layer and again by the service; `-1` = unlimited |
 | `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); `-1` = unlimited |
+| `upload-file.merge.fsync` | `true` | fsync the merge temp file before renaming |
+| `upload-file.merge.atomic` | `true` | Merge via temp file + atomic move |
+| `upload-file.cleanup.enabled` | `false` | Start the expired-task / orphan cleanup scheduler |
+| `upload-file.cleanup.run-on-startup` | `false` | Run one cleanup pass at startup |
+| `upload-file.cleanup.interval` | `1h` | Cleanup period |
+| `upload-file.cleanup.task-ttl` | `24h` | Expiry of incomplete tasks; `0` = never clean |
+| `upload-file.cleanup.orphan-enabled` | `false` | Enable orphan-data cleanup (requires a persistent store) |
+| `upload-file.async-merge.enabled` | `false` | Enable async merge |
+| `upload-file.async-merge.thread-pool-size` | `2` | Async merge thread count |
+| `upload-file.jdbc.table-name` | `upload_task` | JDBC table name |
+| `upload-file.redis.key-prefix` | `upload:task:` | Redis key prefix |
+| `upload-file.redis.ttl-seconds` | `0` | Redis record TTL; `0` = none |
+
+> Pure Servlet deployments configure the same options as init-params (e.g. `chunk.max-size`,
+> `cleanup.enabled`, `async-merge.enabled`).
 
 ## HTTP API Overview
 
@@ -112,6 +135,8 @@ UploadResult result = service.merge(identifier);
 | `POST /upload` (multipart, file field `file`) | Upload one chunk. Params: `identifier`, `fileName`, `fileSize`, `chunkSize`, `chunkTotal`, `chunkIndex`, `chunkMd5`. Returns progress JSON |
 | `GET /upload?action=progress&identifier=xxx` | Query upload progress |
 | `POST /upload?action=merge&identifier=xxx` | Merge all chunks. Returns result JSON |
+| `POST /upload?action=mergeAsync&identifier=xxx` | Submit an async merge (`202`); new chunks are rejected while pending/running |
+| `GET /upload?action=mergeStatus&identifier=xxx` | Query the async merge status (`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`) |
 | `GET /download?identifier=xxx` | Full download (`200`) |
 | `GET /download?identifier=xxx` + `Range` header | Range download (`206` / `416`) |
 
@@ -148,9 +173,12 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 
 ## Security
 
-- `identifier` and `fileName` are validated to prevent path traversal
+- `identifier` and `fileName` are validated to prevent path traversal (validated in every store implementation)
 - Optional per-chunk MD5 verification
-- Chunks and metadata are written atomically (temp file + rename)
+- Chunks and metadata are written atomically (temp file + rename); merge is atomic as well
+- A `max-chunk-size` / `chunk.max-size` limit rejects oversized chunks (disk-exhaustion protection)
+- Chunk metadata is checked for cross-chunk consistency; later chunks that disagree with the first are rejected
+- Cleanup and upload/merge share a per-identifier lock, so background GC never races live data
 
 ## Docs
 

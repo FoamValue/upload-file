@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.1`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.2`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
-| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-demo` |
+| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.1` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.2` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -19,17 +19,22 @@
 - 断点续传：服务端记录「已上传分片」，客户端可随时暂停/继续
 - 分片校验：可选校验每个分片 MD5，避免脏数据
 - 分片合并：按序合并分片，校验最终文件大小，合并后自动清理分片
+- 合并原子化：先写同目录临时文件，可选 fsync，再原子改名落位；中途失败不留坏文件
+- 合并异步化：后台执行合并，通过 `mergeAsync` / `mergeStatus` 轮询状态
+- 过期任务与孤儿清理：按 TTL 清理未完成任务，可选孤儿数据 GC
 - 断点下载：基于 HTTP `Range` 的断点续传下载（`206 Partial Content`）
-- 元数据持久化：任务进度可落盘（JSON），服务重启不丢任务
+- 元数据持久化：进度可落盘 JSON，也可通过 `TaskStore` SPI 接入 JDBC / Redis
 - 多接入方式：纯 Servlet / Spring Boot 自动配置 / 直接调用核心 API
 
 ## 模块说明
 
 | 模块 | 说明 | 引用方式 |
 | --- | --- | --- |
-| `upload-file-core` | 核心纯 Java 组件：模型、校验、存储 SPI、上传/下载服务 | 任何 Java/Maven 项目 |
+| `upload-file-core` | 核心纯 Java 组件：模型、校验、存储 SPI、上传/下载/清理服务 | 任何 Java/Maven 项目 |
 | `upload-file-servlet` | Servlet 3.0+ 接入：分片上传 Servlet、Range 下载 Servlet | Servlet 容器项目 |
 | `upload-file-spring-boot-starter` | Spring Boot 2.x 自动配置，零配置开箱即用 | Spring Boot 项目 |
+| `upload-file-store-jdbc` | 可选：JDBC 版 `TaskStore`（自动建表，H2 测试） | 配置 `metadata-store=jdbc` 时 |
+| `upload-file-store-redis` | 可选：Redis 版 `TaskStore`（基于 Jedis） | 配置 `metadata-store=redis` 时 |
 | `example/upload-file-demo` | 演示用例：Spring Boot + 前端页面，展示完整断点续传流程 | — |
 
 ## 快速开始
@@ -40,7 +45,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.1</version>
+    <version>1.0.0-rc.2</version>
 </dependency>
 ```
 
@@ -58,6 +63,8 @@ upload-file:
 - `POST /upload` 上传分片
 - `GET /upload?action=progress&identifier=xxx` 查询进度
 - `POST /upload?action=merge&identifier=xxx` 合并
+- `POST /upload?action=mergeAsync&identifier=xxx` 提交异步合并（HTTP `202`），用 `mergeStatus` 轮询
+- `GET /upload?action=mergeStatus&identifier=xxx` 查询异步合并状态
 - `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）
 
 ### 方式二：纯 Servlet 容器
@@ -100,11 +107,26 @@ UploadResult result = service.merge(identifier);
 | --- | --- | --- |
 | `upload-file.storage-dir` | `./upload-file-data` | 分片与合并文件根目录 |
 | `upload-file.metadata-dir` | *(空)* | 任务元数据目录；为空使用内存（重启后丢失） |
+| `upload-file.metadata-store` | `auto` | `auto`（有 `metadata-dir` → file，否则 memory）/ `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | 是否校验分片 MD5 |
 | `upload-file.upload-url` | `/upload` | 上传 Servlet 映射路径 |
 | `upload-file.download-url` | `/download` | 下载 Servlet 映射路径 |
-| `upload-file.max-chunk-size` | `-1` | 单个分片最大字节数（multipart）；`-1` 不限 |
+| `upload-file.max-chunk-size` | `-1` | 单个分片最大字节数：multipart 层与上传服务双重限制；`-1` 不限 |
 | `upload-file.max-request-size` | `-1` | 单个请求最大字节数（multipart）；`-1` 不限 |
+| `upload-file.merge.fsync` | `true` | 改名落位前是否 fsync 合并临时文件 |
+| `upload-file.merge.atomic` | `true` | 是否采用「临时文件 + 原子改名」合并 |
+| `upload-file.cleanup.enabled` | `false` | 是否启动过期任务/孤儿清理调度 |
+| `upload-file.cleanup.run-on-startup` | `false` | 启动时是否先执行一次清理 |
+| `upload-file.cleanup.interval` | `1h` | 清理周期 |
+| `upload-file.cleanup.task-ttl` | `24h` | 未完成任务过期时间；`0` = 永不清理 |
+| `upload-file.cleanup.orphan-enabled` | `false` | 是否开启孤儿数据清理（需持久化存储） |
+| `upload-file.async-merge.enabled` | `false` | 是否开启异步合并 |
+| `upload-file.async-merge.thread-pool-size` | `2` | 异步合并线程数 |
+| `upload-file.jdbc.table-name` | `upload_task` | JDBC 表名 |
+| `upload-file.redis.key-prefix` | `upload:task:` | Redis key 前缀 |
+| `upload-file.redis.ttl-seconds` | `0` | Redis 记录 TTL；`0` = 不过期 |
+
+> 纯 Servlet 部署使用同名 init-param 配置（如 `chunk.max-size`、`cleanup.enabled`、`async-merge.enabled`）。
 
 ## HTTP API 概览
 
@@ -113,6 +135,8 @@ UploadResult result = service.merge(identifier);
 | `POST /upload`（multipart，文件字段名 `file`） | 上传一个分片。参数：`identifier`、`fileName`、`fileSize`、`chunkSize`、`chunkTotal`、`chunkIndex`、`chunkMd5`。返回进度 JSON |
 | `GET /upload?action=progress&identifier=xxx` | 查询上传进度 |
 | `POST /upload?action=merge&identifier=xxx` | 合并全部分片。返回结果 JSON |
+| `POST /upload?action=mergeAsync&identifier=xxx` | 提交异步合并（`202`）；进行/完成时拒收新分片 |
+| `GET /upload?action=mergeStatus&identifier=xxx` | 查询异步合并状态（`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`） |
 | `GET /download?identifier=xxx` | 完整下载（`200`） |
 | `GET /download?identifier=xxx` + `Range` 头 | 区间下载（`206` / `416`） |
 
@@ -150,9 +174,12 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 
 ## 安全
 
-- `identifier` 与 `fileName` 均做校验，防止路径穿越
+- `identifier` 与 `fileName` 均做校验，防止路径穿越（每个存储实现内部均校验）
 - 可选的分片 MD5 校验
-- 分片与元数据采用「临时文件 + 原子改名」写盘
+- 分片与元数据采用「临时文件 + 原子改名」写盘；合并同样原子化
+- `max-chunk-size` / `chunk.max-size` 上限拒绝超限分片（防磁盘耗尽）
+- 分片元数据跨分片一致性校验，与首片不一致的后续分片被拒绝
+- 清理与上传/合并共享按 identifier 的分片锁，后台 GC 不会与实时数据竞争
 
 ## 文档
 

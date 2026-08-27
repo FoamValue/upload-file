@@ -15,6 +15,7 @@ import java.util.TreeSet;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class MemoryTaskStoreTest {
@@ -75,5 +76,15 @@ public class MemoryTaskStoreTest {
         store.save(task("m4"));
         store.save(task("m5"));
         assertEquals(2, store.list().size());
+    }
+
+    @Test
+    public void unsafeIdentifiersAreRejected() {
+        // Consistency with FileTaskStore/JdbcTaskStore/RedisTaskStore: unsafe identifiers must
+        // be rejected rather than silently treated as a different key.
+        assertThrows(IllegalArgumentException.class, () -> store.get("../escape"));
+        assertThrows(IllegalArgumentException.class, () -> store.remove("../escape"));
+        UploadTask bad = task("../escape");
+        assertThrows(IllegalArgumentException.class, () -> store.save(bad));
     }
 }

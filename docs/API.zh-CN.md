@@ -43,7 +43,9 @@ multipart 字段：
 
 说明：同一分片重复上传直接跳过（幂等），返回当前进度。
 
-错误（`400`）：参数非法、MD5 不一致、任务已合并。
+错误（`400`）：参数非法、MD5 不一致、任务已合并、分片元数据与首片不一致
+（`chunkTotal` / `chunkSize` / `fileSize` / `fileName`）、分片超过
+`max-chunk-size` / `chunk.max-size`。
 
 ## 2. 查询上传进度
 
@@ -75,6 +77,47 @@ POST /upload?action=merge&identifier=<identifier>
 ```
 
 错误（`400`）：任务不存在、分片不完整、合并后文件大小与 `fileSize` 不一致。
+
+## 3.1 提交异步合并
+
+```
+POST /upload?action=mergeAsync&identifier=<identifier>
+```
+
+将合并提交到后台线程池执行，返回 HTTP `202` 与当前状态。同一 identifier 在 `PENDING`/`RUNNING`
+期间重复提交是幂等的。合并处于 `PENDING`/`RUNNING`/`SUCCEEDED` 时，新的分片上传会被拒绝。
+
+响应 `202`：
+
+```json
+{
+  "identifier": "55e1c5ec9e2389c5be429808c9800131",
+  "state": "PENDING",
+  "merged": false
+}
+```
+
+状态机：`NONE → PENDING → RUNNING → SUCCEEDED/FAILED`。
+
+## 3.2 查询异步合并状态
+
+```
+GET /upload?action=mergeStatus&identifier=<identifier>
+```
+
+返回当前异步合并状态；从未提交（或不存在）的任务返回 `NONE`，同步合并完成的任务返回 `SUCCEEDED`。
+
+```json
+{
+  "identifier": "55e1c5ec9e2389c5be429808c9800131",
+  "state": "SUCCEEDED",
+  "merged": true,
+  "finalPath": "/data/upload/files/55e1c5ec9e2389c5be429808c9800131/demo.bin",
+  "finalFileSize": 11534336
+}
+```
+
+`FAILED` 时 `message` 字段携带服务端错误原因。
 
 ## 4. 下载（支持断点续传）
 

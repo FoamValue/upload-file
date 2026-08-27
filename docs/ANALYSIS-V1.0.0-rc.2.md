@@ -2,6 +2,8 @@
 
 > Based on the [V1.0.0-rc.2 Task Development Plan](PLAN-V1.0.0-rc.2.md) and the current `1.0.0-rc.1` code baseline.
 > Purpose: assess upgrade conflicts, compatibility strategy, and gaps that must be considered when `rc.1` is already running at scale.
+>
+> ✅ **Status: the recommended defaults and guardrails below are implemented in `1.0.0-rc.2`** — `cleanup.*`/`async-merge.*` default off, `merge.atomic` fallback switch present, orphan GC skipped for the in-memory store, and a shared `IdentifierLock` coordinates cleanup with in-flight uploads/merges.
 
 ## 0. rc.1 Baseline (basis of the analysis)
 
