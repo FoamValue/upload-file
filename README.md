@@ -7,7 +7,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 | Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.2` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
-| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` |
+| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
 > 🚧 Status: **Pre-release** `1.0.0-rc.2` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
@@ -36,6 +36,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 | `upload-file-store-jdbc` | Optional: JDBC-backed `TaskStore` (auto table creation, H2 test) | when `metadata-store=jdbc` |
 | `upload-file-store-redis` | Optional: Redis-backed `TaskStore` (Jedis) | when `metadata-store=redis` |
 | `example/upload-file-demo` | Demo app: Spring Boot + frontend page showing the full resumable workflow | — |
+| `example/upload-file-servlet-demo` | Demo app: plain Servlet (no Spring), wired via `web.xml` | — |
 
 ## Quick Start
 
@@ -122,6 +123,10 @@ UploadResult result = service.merge(identifier);
 | `upload-file.async-merge.enabled` | `false` | Enable async merge |
 | `upload-file.async-merge.thread-pool-size` | `2` | Async merge thread count |
 | `upload-file.jdbc.table-name` | `upload_task` | JDBC table name |
+| `upload-file.jdbc.init-sql` | `CREATE TABLE IF NOT EXISTS %s (...)` | SQL to auto-create the JDBC table; the table name is substituted for the first `%s` |
+| `upload-file.redis.host` | `localhost` | Redis host |
+| `upload-file.redis.port` | `6379` | Redis port |
+| `upload-file.redis.password` | *(empty)* | Redis password; empty = no auth |
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key prefix |
 | `upload-file.redis.ttl-seconds` | `0` | Redis record TTL; `0` = none |
 
@@ -135,7 +140,7 @@ UploadResult result = service.merge(identifier);
 | `POST /upload` (multipart, file field `file`) | Upload one chunk. Params: `identifier`, `fileName`, `fileSize`, `chunkSize`, `chunkTotal`, `chunkIndex`, `chunkMd5`. Returns progress JSON |
 | `GET /upload?action=progress&identifier=xxx` | Query upload progress |
 | `POST /upload?action=merge&identifier=xxx` | Merge all chunks. Returns result JSON |
-| `POST /upload?action=mergeAsync&identifier=xxx` | Submit an async merge (`202`); new chunks are rejected while pending/running |
+| `POST /upload?action=mergeAsync&identifier=xxx` | Submit an async merge (`202`); new chunks are rejected while pending/running/succeeded |
 | `GET /upload?action=mergeStatus&identifier=xxx` | Query the async merge status (`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`) |
 | `GET /download?identifier=xxx` | Full download (`200`) |
 | `GET /download?identifier=xxx` + `Range` header | Range download (`206` / `416`) |
@@ -157,7 +162,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.2.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.

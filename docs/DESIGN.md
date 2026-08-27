@@ -11,7 +11,8 @@ upload-file (parent POM / aggregator)
 ├── upload-file-spring-boot-starter    Spring Boot auto-configuration
 ├── upload-file-store-jdbc             optional: JDBC TaskStore (H2 test)
 ├── upload-file-store-redis            optional: Redis TaskStore (Jedis)
-└── example/upload-file-demo           demo application
+├── example/upload-file-demo            demo: Spring Boot + frontend page
+└── example/upload-file-servlet-demo    demo: plain Servlet wired via web.xml
 ```
 
 ## Core Concepts
@@ -48,8 +49,8 @@ upload-file (parent POM / aggregator)
     └── <identifier>.json              # task metadata (temp file + atomic rename)
 ```
 
-`identifier` is validated by `Strings.requireSafeIdentifier` (no `/`, `\`, `.`, `..`);
-`fileName` is validated by `Strings.requireSafeFileName` (re-validated before the merged
+`identifier` is validated by `StringUtil.requireSafeIdentifier` (no `/`, `\`, `.`, `..`);
+`fileName` is validated by `StringUtil.requireSafeFileName` (re-validated before the merged
 file is written), preventing path traversal. Every store implementation validates the
 identifier internally, defending against callers that use the SPI directly.
 

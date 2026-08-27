@@ -11,7 +11,8 @@ upload-file (父 POM / 聚合器)
 ├── upload-file-spring-boot-starter         Spring Boot 自动配置
 ├── upload-file-store-jdbc                  可选：JDBC 版 TaskStore（H2 测试）
 ├── upload-file-store-redis                 可选：Redis 版 TaskStore（Jedis）
-└── example/upload-file-demo                演示用例
+├── example/upload-file-demo                演示用例：Spring Boot + 前端页面
+└── example/upload-file-servlet-demo        演示用例：纯 Servlet，web.xml 装配
 ```
 
 ## 核心概念
@@ -47,8 +48,8 @@ upload-file (父 POM / 聚合器)
     └── <identifier>.json              # 任务元数据（临时文件 + 原子改名写入）
 ```
 
-`identifier` 经 `Strings.requireSafeIdentifier` 校验，禁止 `/`、`\`、`.`、`..`；
-`fileName` 经 `Strings.requireSafeFileName` 校验（合并写盘前再次校验），防止路径穿越。
+`identifier` 经 `StringUtil.requireSafeIdentifier` 校验，禁止 `/`、`\`、`.`、`..`；
+`fileName` 经 `StringUtil.requireSafeFileName` 校验（合并写盘前再次校验），防止路径穿越。
 所有存储实现内部都会重复校验 identifier，防御直接调用 SPI 的调用方。
 
 ## 分片上传流程

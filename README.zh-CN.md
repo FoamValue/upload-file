@@ -7,7 +7,7 @@
 | 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.2`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
-| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` |
+| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
 > 🚧 状态：**Pre-release** `1.0.0-rc.2` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
@@ -36,6 +36,7 @@
 | `upload-file-store-jdbc` | 可选：JDBC 版 `TaskStore`（自动建表，H2 测试） | 配置 `metadata-store=jdbc` 时 |
 | `upload-file-store-redis` | 可选：Redis 版 `TaskStore`（基于 Jedis） | 配置 `metadata-store=redis` 时 |
 | `example/upload-file-demo` | 演示用例：Spring Boot + 前端页面，展示完整断点续传流程 | — |
+| `example/upload-file-servlet-demo` | 演示用例：纯 Servlet（无 Spring），通过 web.xml 装配 | — |
 
 ## 快速开始
 
@@ -123,6 +124,10 @@ UploadResult result = service.merge(identifier);
 | `upload-file.async-merge.enabled` | `false` | 是否开启异步合并 |
 | `upload-file.async-merge.thread-pool-size` | `2` | 异步合并线程数 |
 | `upload-file.jdbc.table-name` | `upload_task` | JDBC 表名 |
+| `upload-file.jdbc.init-sql` | `CREATE TABLE IF NOT EXISTS %s (...)` | 自动建表 SQL；表名替换第一个 `%s` |
+| `upload-file.redis.host` | `localhost` | Redis 主机 |
+| `upload-file.redis.port` | `6379` | Redis 端口 |
+| `upload-file.redis.password` | *(空)* | Redis 密码；空 = 无认证 |
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key 前缀 |
 | `upload-file.redis.ttl-seconds` | `0` | Redis 记录 TTL；`0` = 不过期 |
 
@@ -157,7 +162,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.2.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、

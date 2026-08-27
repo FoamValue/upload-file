@@ -66,7 +66,7 @@ POST /upload?action=merge&identifier=<identifier>
 ```json
 {
   "success": true,
-  "message": "合并成功",
+  "message": "Merged successfully",
   "identifier": "55e1c5ec9e2389c5be429808c9800131",
   "chunkTotal": 3,
   "uploadedCount": 3,
