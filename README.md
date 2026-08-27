@@ -130,6 +130,31 @@ UploadResult result = service.merge(identifier);
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key prefix |
 | `upload-file.redis.ttl-seconds` | `0` | Redis record TTL; `0` = none |
 
+The dotted names above map to nested groups, so the same settings can be written in a grouped
+YAML form:
+
+```yaml
+upload-file:
+  storage-dir: ./data/upload
+  verify-checksum: true
+  merge:
+    fsync: true
+    atomic: true
+  cleanup:
+    enabled: true
+    interval: 1h
+    task-ttl: 24h
+  async-merge:
+    enabled: true
+    thread-pool-size: 2
+  jdbc:
+    table-name: upload_task
+  redis:
+    host: localhost
+    port: 6379
+    key-prefix: upload:task:
+```
+
 > Pure Servlet deployments configure the same options as init-params (e.g. `chunk.max-size`,
 > `cleanup.enabled`, `async-merge.enabled`).
 

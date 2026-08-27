@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### 修复
+
+- `upload-file-spring-boot-starter` 元数据绑定：`UploadFileProperties` 原先为扁平字段，文档中的点号属性名
+  （`merge.fsync`、`cleanup.enabled`、`cleanup.interval`、`jdbc.table-name`、`redis.key-prefix` 等）
+  会被 Spring Boot 的 `@ConfigurationProperties` 静默忽略。现已将属性重构为嵌套的
+  `merge` / `cleanup` / `async-merge` / `jdbc` / `redis` 配置类，文档化名称按预期生效
+  （行为与默认值不变）。
+
 - 计划：Spring Boot 3.x（`jakarta.servlet`）适配。
 
 ## [1.0.0-rc.2] - 2026-08-26

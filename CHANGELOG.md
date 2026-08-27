@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `upload-file-spring-boot-starter` metadata binding: `UploadFileProperties` used flat fields, so the documented dotted property names (`merge.fsync`, `cleanup.enabled`, `cleanup.interval`, `jdbc.table-name`, `redis.key-prefix`, ...) were silently ignored by Spring Boot's `@ConfigurationProperties`. The properties are now grouped into nested `merge` / `cleanup` / `async-merge` / `jdbc` / `redis` classes, so the documented names bind as expected (behavior and defaults unchanged).
+
 - Planned: Spring Boot 3.x (`jakarta.servlet`) adapter.
 
 ## [1.0.0-rc.2] - 2026-08-26

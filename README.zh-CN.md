@@ -131,6 +131,30 @@ UploadResult result = service.merge(identifier);
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key 前缀 |
 | `upload-file.redis.ttl-seconds` | `0` | Redis 记录 TTL；`0` = 不过期 |
 
+上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
+
+```yaml
+upload-file:
+  storage-dir: ./data/upload
+  verify-checksum: true
+  merge:
+    fsync: true
+    atomic: true
+  cleanup:
+    enabled: true
+    interval: 1h
+    task-ttl: 24h
+  async-merge:
+    enabled: true
+    thread-pool-size: 2
+  jdbc:
+    table-name: upload_task
+  redis:
+    host: localhost
+    port: 6379
+    key-prefix: upload:task:
+```
+
 > 纯 Servlet 部署使用同名 init-param 配置（如 `chunk.max-size`、`cleanup.enabled`、`async-merge.enabled`）。
 
 ## HTTP API 概览
