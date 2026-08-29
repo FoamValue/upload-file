@@ -7,11 +7,15 @@
 package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
+import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
+import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
+import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
@@ -627,6 +631,164 @@ public class ResumableUploadServiceTest {
         req.setChunkMd5("00000000000000000000000000000000"); // must be ignored when verification is off
         UploadProgress p = noVerify.uploadChunk(req, new ByteArrayInputStream(new byte[1]));
         assertEquals(1, p.getUploadedCount());
+    }
+
+    @Test
+    public void accessControlDeniesWithoutToken() throws Exception {
+        ResumableUploadService secured = securedService("topsecret");
+
+        assertThrows(AccessDeniedException.class,
+                () -> secured.uploadChunk(request("s1", 0, 1), new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))));
+        assertThrows(AccessDeniedException.class, () -> secured.getProgress("s1"));
+        assertThrows(AccessDeniedException.class, () -> secured.merge("s1"));
+        assertThrows(AccessDeniedException.class, () -> secured.submitMerge("s1"));
+        assertThrows(AccessDeniedException.class, () -> secured.getMergeStatus("s1"));
+    }
+
+    @Test
+    public void accessControlAllowsWithCorrectToken() throws Exception {
+        ResumableUploadService secured = securedService("topsecret");
+        ChunkUploadRequest req = request("s2", 0, 1);
+        req.setFileSize("hello".length());
+        UploadProgress p = secured.uploadChunk(req, "topsecret",
+                new ByteArrayInputStream("hello".getBytes(StandardCharsets.UTF_8)));
+        assertEquals(1, p.getUploadedCount());
+
+        assertEquals(1, secured.getProgress("s2", "topsecret").getUploadedCount());
+        UploadResult result = secured.merge("s2", "topsecret");
+        assertTrue(result.isSuccess());
+        assertEquals(UploadTask.MERGE_STATE_SUCCEEDED, secured.getMergeStatus("s2", "topsecret").getState());
+    }
+
+    @Test
+    public void accessControlRejectsWrongTokenPerEndpoint() throws Exception {
+        ResumableUploadService secured = securedService("topsecret");
+        assertThrows(AccessDeniedException.class,
+                () -> secured.uploadChunk(request("s3", 0, 1), "wrong",
+                        new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))));
+        assertThrows(AccessDeniedException.class, () -> secured.getProgress("s3", "wrong"));
+    }
+
+    @Test
+    public void accessControlCanBeReplacedViaSetter() throws Exception {
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-ac").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-ac").toPath()),
+                new File(folder.getRoot(), "files-ac"));
+        svc.setAccessControl(new TokenAccessControl("tk"));
+        assertThrows(AccessDeniedException.class, () -> svc.getProgress("ac1"));
+
+        svc.setAccessControl(PermitAllAccessControl.INSTANCE);
+        assertEquals(0, svc.getProgress("ac1").getUploadedCount());
+    }
+
+    @Test
+    public void fileSizeExceedingMaxFileBytesRejectedAtFirstChunk() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        svc.setMaxFileBytes(8);
+        ChunkUploadRequest req = request("big1", 0, 1);
+        req.setFileSize(100);
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.uploadChunk(req, new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))));
+        assertFalse(svc.isChunkUploaded("big1", 0));
+    }
+
+    @Test
+    public void fileSizeWithinMaxFileBytesAccepted() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        svc.setMaxFileBytes(8);
+        ChunkUploadRequest req = request("small1", 0, 1);
+        req.setFileSize(3);
+        assertEquals(1, svc.uploadChunk(req, new ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8))).getUploadedCount());
+    }
+
+    @Test
+    public void mergeRejectsFileExceedingMaxFileBytes() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        ChunkUploadRequest req = request("big2", 0, 1);
+        req.setFileSize(100);
+        // The limit is applied before merge; upload it first without the limit being set.
+        svc.uploadChunk(req, new ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8)));
+        svc.setMaxFileBytes(8);
+
+        // A task whose declared size exceeds the (now configured) limit is rejected at merge time.
+        assertThrows(IllegalArgumentException.class, () -> svc.merge("big2"));
+    }
+
+    @Test
+    public void quotaExceededRejectsNewTask() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        svc.setMaxTotalBytes(100);
+        // one existing merged task of 60 bytes
+        UploadTask existing = new UploadTask();
+        existing.setIdentifier("done1");
+        existing.setFileName("d.bin");
+        existing.setChunkTotal(1);
+        existing.setMerged(true);
+        existing.setFinalFileSize(60);
+        existing.setSchemaVersion(UploadTask.CURRENT_SCHEMA_VERSION);
+        svc.getTaskStore().save(existing);
+
+        ChunkUploadRequest req = request("quota1", 0, 1);
+        req.setFileSize(50); // 60 + 50 > 100
+        assertThrows(QuotaExceededException.class,
+                () -> svc.uploadChunk(req, new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))));
+    }
+
+    @Test
+    public void quotaWithinLimitAcceptsNewTask() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        svc.setMaxTotalBytes(100);
+        UploadTask existing = new UploadTask();
+        existing.setIdentifier("done2");
+        existing.setFileName("d.bin");
+        existing.setChunkTotal(1);
+        existing.setMerged(true);
+        existing.setFinalFileSize(60);
+        existing.setSchemaVersion(UploadTask.CURRENT_SCHEMA_VERSION);
+        svc.getTaskStore().save(existing);
+
+        ChunkUploadRequest req = request("quota2", 0, 1);
+        req.setFileSize(30); // 60 + 30 <= 100
+        assertEquals(1, svc.uploadChunk(req, new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))).getUploadedCount());
+    }
+
+    @Test
+    public void quotaExceededRejectsMerge() throws Exception {
+        ResumableUploadService svc = sizeLimitedService();
+        ChunkUploadRequest req = request("quota3", 0, 1);
+        req.setFileSize(120);
+        svc.uploadChunk(req, new ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8)));
+        svc.setMaxTotalBytes(100);
+
+        assertThrows(QuotaExceededException.class, () -> svc.merge("quota3"));
+    }
+
+    @Test
+    public void quotaDisabledByDefault() throws Exception {
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-q").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-q").toPath()),
+                new File(folder.getRoot(), "files-q"));
+        ChunkUploadRequest req = request("q1", 0, 1);
+        req.setFileSize(Long.MAX_VALUE);
+        assertEquals(1, svc.uploadChunk(req, new ByteArrayInputStream("x".getBytes(StandardCharsets.UTF_8))).getUploadedCount());
+    }
+
+    private ResumableUploadService securedService(String token) throws IOException {
+        ResumableUploadService svc = new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-sec" + token.hashCode()).toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-sec" + token.hashCode()).toPath()),
+                new File(folder.getRoot(), "files-sec" + token.hashCode()),
+                true, true, true, new IdentifierLock(), new TokenAccessControl(token));
+        return svc;
+    }
+
+    private ResumableUploadService sizeLimitedService() throws IOException {
+        return new ResumableUploadService(
+                new FileTaskStore(new File(folder.getRoot(), "meta-size3").toPath()),
+                new LocalFileChunkStorage(new File(folder.getRoot(), "chunks-size3").toPath()),
+                new File(folder.getRoot(), "files-size3"));
     }
 
     private ResumableUploadService asyncService() throws IOException {

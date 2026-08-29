@@ -155,6 +155,39 @@ public class DownloadServletTest {
     }
 
     @Test
+    public void accessDeniedReturns401() throws Exception {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.securityEnabled = true;
+        config.securityToken = "secret";
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+
+        ResumableUploadService uploadService = context.getUploadService();
+        ChunkUploadRequest request = new ChunkUploadRequest();
+        request.setIdentifier(IDENTIFIER);
+        request.setFileName("demo.txt");
+        request.setFileSize(CONTENT.length);
+        request.setChunkSize(CONTENT.length);
+        request.setChunkTotal(1);
+        request.setChunkIndex(0);
+        uploadService.uploadChunk(request, "secret", new ByteArrayInputStream(CONTENT));
+        uploadService.merge(IDENTIFIER, "secret");
+
+        DownloadServlet secured = new DownloadServlet();
+        secured.setDownloadService(context.getDownloadService());
+
+        MockHttpServletResponse denied = new MockHttpServletResponse();
+        secured.doGet(downloadRequest(), denied); // no token
+        assertEquals(401, denied.getStatus());
+
+        MockHttpServletRequest ok = downloadRequest();
+        ok.addHeader("X-Access-Token", "secret");
+        MockHttpServletResponse allowed = new MockHttpServletResponse();
+        secured.doGet(ok, allowed);
+        assertEquals(200, allowed.getStatus());
+        assertArrayEquals(CONTENT, allowed.getContentAsByteArray());
+    }
+
+    @Test
     public void initFromServletConfigServesDownload() throws Exception {
         MockServletContext servletContext = new MockServletContext();
         MockServletConfig config = new MockServletConfig(servletContext);

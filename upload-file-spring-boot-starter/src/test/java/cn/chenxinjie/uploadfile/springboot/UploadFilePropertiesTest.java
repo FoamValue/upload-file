@@ -50,6 +50,16 @@ class UploadFilePropertiesTest {
         assertNull(properties.getRedis().getPassword());
         assertEquals("upload:task:", properties.getRedis().getKeyPrefix());
         assertEquals(0, properties.getRedis().getTtlSeconds());
+
+        // rc.3 additions
+        assertEquals(-1L, properties.getMaxFileSize());
+        assertFalse(properties.getSecurity().isEnabled());
+        assertEquals("", properties.getSecurity().getToken());
+        assertEquals("X-Access-Token", properties.getSecurity().getHeaderName());
+        assertEquals(0L, properties.getQuota().getMaxBytes());
+        assertFalse(properties.getCleanup().isUseRedisLock());
+        assertTrue(properties.getObservability().isLogStats());
+        assertFalse(properties.getMigration().isEnabled());
     }
 
     @Test
@@ -113,5 +123,24 @@ class UploadFilePropertiesTest {
         assertEquals("secret", properties.getRedis().getPassword());
         assertEquals("up:", properties.getRedis().getKeyPrefix());
         assertEquals(3600, properties.getRedis().getTtlSeconds());
+
+        // rc.3 additions
+        properties.setMaxFileSize(4096L);
+        properties.getSecurity().setEnabled(true);
+        properties.getSecurity().setToken("t0k3n");
+        properties.getSecurity().setHeaderName("X-Custom");
+        properties.getQuota().setMaxBytes(1_000_000L);
+        properties.getCleanup().setUseRedisLock(true);
+        properties.getObservability().setLogStats(false);
+        properties.getMigration().setEnabled(true);
+
+        assertEquals(4096L, properties.getMaxFileSize());
+        assertTrue(properties.getSecurity().isEnabled());
+        assertEquals("t0k3n", properties.getSecurity().getToken());
+        assertEquals("X-Custom", properties.getSecurity().getHeaderName());
+        assertEquals(1_000_000L, properties.getQuota().getMaxBytes());
+        assertTrue(properties.getCleanup().isUseRedisLock());
+        assertFalse(properties.getObservability().isLogStats());
+        assertTrue(properties.getMigration().isEnabled());
     }
 }

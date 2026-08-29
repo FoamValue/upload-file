@@ -327,4 +327,103 @@ public class UploadServletTest {
         UploadProgress progress = new Gson().fromJson(response.getContentAsString(), UploadProgress.class);
         assertEquals(1, progress.getUploadedCount());
     }
+
+    @Test
+    public void securityRejectsChunkWithoutToken() throws Exception {
+        UploadServlet secured = securedServlet("srv-secret");
+
+        MockHttpServletRequest request = multipartRequest("sec1");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        secured.doPost(request, response);
+
+        assertEquals(401, response.getStatus());
+        assertFalse(uploadServiceOf(secured).isChunkUploaded("sec1", 0));
+    }
+
+    @Test
+    public void securityAcceptsChunkWithHeaderToken() throws Exception {
+        UploadServlet secured = securedServlet("srv-secret");
+
+        MockHttpServletRequest request = multipartRequest("sec2");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        request.addHeader("X-Access-Token", "srv-secret");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        secured.doPost(request, response);
+
+        assertEquals(200, response.getStatus());
+        assertTrue(uploadServiceOf(secured).isChunkUploaded("sec2", 0));
+    }
+
+    @Test
+    public void securityAcceptsChunkWithQueryToken() throws Exception {
+        UploadServlet secured = securedServlet("srv-secret");
+
+        MockHttpServletRequest request = multipartRequest("sec3");
+        request.setParameter("token", "srv-secret");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        secured.doPost(request, response);
+
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void securityRejectsProgressWithoutToken() throws Exception {
+        UploadServlet secured = securedServlet("srv-secret");
+        MockHttpServletRequest progress = new MockHttpServletRequest();
+        progress.setParameter("identifier", "sec4");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        secured.doGet(progress, response);
+
+        assertEquals(401, response.getStatus());
+    }
+
+    @Test
+    public void quotaExceededReturns507() throws Exception {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.quotaMaxBytes = 4;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+        UploadServlet quotaServlet = new UploadServlet();
+        quotaServlet.setUploadService(context.getUploadService());
+
+        MockHttpServletRequest request = multipartRequest("quota1");
+        request.setParameter("fileSize", "100");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        quotaServlet.doPost(request, response);
+
+        assertEquals(507, response.getStatus());
+        assertFalse(context.getUploadService().isChunkUploaded("quota1", 0));
+    }
+
+    private UploadServlet securedServlet(String token) {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.securityEnabled = true;
+        config.securityToken = token;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+        UploadServlet servlet = new UploadServlet();
+        servlet.setUploadService(context.getUploadService());
+        return servlet;
+    }
+
+    private ResumableUploadService uploadServiceOf(UploadServlet servlet) {
+        return servlet.getUploadService();
+    }
+
+    private MockHttpServletRequest multipartRequest(String identifier) {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setContentType("multipart/form-data");
+        request.setParameter("identifier", identifier);
+        request.setParameter("fileName", "demo.bin");
+        request.setParameter("fileSize", "5");
+        request.setParameter("chunkSize", "5");
+        request.setParameter("chunkTotal", "1");
+        request.setParameter("chunkIndex", "0");
+        return request;
+    }
 }

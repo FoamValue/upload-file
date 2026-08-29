@@ -7,6 +7,8 @@
 package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
+import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.StringUtil;
 
@@ -29,6 +31,7 @@ public class ResumableDownloadService {
 
     private final TaskStore taskStore;
     private final File mergedFileDir;
+    private volatile AccessControl accessControl = PermitAllAccessControl.INSTANCE;
 
     public ResumableDownloadService(TaskStore taskStore, File mergedFileDir) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
@@ -36,12 +39,27 @@ public class ResumableDownloadService {
     }
 
     /**
+     * Replaces the access-control policy; defaults to {@link PermitAllAccessControl} (no-op).
+     */
+    public void setAccessControl(AccessControl accessControl) {
+        this.accessControl = Objects.requireNonNull(accessControl, "accessControl");
+    }
+
+    /**
      * Locates the merged complete file.
      */
     public Optional<File> resolveFile(String identifier) {
+        return resolveFile(identifier, null);
+    }
+
+    /**
+     * Locates the merged complete file with an access token (see {@link AccessControl}).
+     */
+    public Optional<File> resolveFile(String identifier, String token) {
         if (StringUtil.isBlank(identifier)) {
             return Optional.empty();
         }
+        accessControl.check(identifier, AccessControl.ACTION_DOWNLOAD, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         if (task == null) {
             return Optional.empty();
@@ -67,6 +85,14 @@ public class ResumableDownloadService {
      * Resolves the file name used for the download (for Content-Disposition).
      */
     public String resolveFileName(String identifier) {
+        return resolveFileName(identifier, null);
+    }
+
+    /**
+     * Resolves the file name used for the download with an access token (see {@link AccessControl}).
+     */
+    public String resolveFileName(String identifier, String token) {
+        accessControl.check(identifier, AccessControl.ACTION_DOWNLOAD, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task != null && StringUtil.isNotBlank(task.getFileName()) ? task.getFileName() : identifier;
     }

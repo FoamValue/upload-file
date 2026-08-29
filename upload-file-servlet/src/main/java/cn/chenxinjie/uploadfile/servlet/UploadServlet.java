@@ -6,6 +6,8 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
+import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
@@ -52,8 +54,21 @@ public class UploadServlet extends HttpServlet {
     private final Gson gson = new Gson();
     private ResumableUploadService uploadService;
 
+    /** Name of the header carrying the access token; a {@code token} query param is also accepted. */
+    private volatile String accessTokenHeader = "X-Access-Token";
+
     public void setUploadService(ResumableUploadService uploadService) {
         this.uploadService = uploadService;
+    }
+
+    public ResumableUploadService getUploadService() {
+        return uploadService;
+    }
+
+    public void setAccessTokenHeader(String accessTokenHeader) {
+        if (accessTokenHeader != null && !accessTokenHeader.trim().isEmpty()) {
+            this.accessTokenHeader = accessTokenHeader.trim();
+        }
     }
 
     @Override
@@ -62,7 +77,18 @@ public class UploadServlet extends HttpServlet {
         if (uploadService == null) {
             UploadFileContext context = UploadFileContext.getOrCreate(config.getServletContext(), config);
             uploadService = context.getUploadService();
+            accessTokenHeader = context.getAccessTokenHeader();
         }
+    }
+
+    /** Reads the access token from the configured header, falling back to a {@code token} query param. */
+    private String token(HttpServletRequest req) {
+        String fromHeader = req.getHeader(accessTokenHeader);
+        if (fromHeader != null && !fromHeader.trim().isEmpty()) {
+            return fromHeader.trim();
+        }
+        String fromParam = req.getParameter("token");
+        return fromParam == null || fromParam.trim().isEmpty() ? null : fromParam.trim();
     }
 
     @Override
@@ -113,8 +139,12 @@ public class UploadServlet extends HttpServlet {
         }
         // Stream the chunk body straight into the storage layer, then return the current progress.
         try (InputStream in = part.getInputStream()) {
-            UploadProgress progress = uploadService.uploadChunk(chunkRequest, in);
+            UploadProgress progress = uploadService.uploadChunk(chunkRequest, token(req), in);
             writeJson(resp, 200, gson.toJson(progress));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
+        } catch (QuotaExceededException e) {
+            writeJson(resp, 507, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
         } catch (Exception e) {
             writeJson(resp, 400, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
         }
@@ -123,8 +153,12 @@ public class UploadServlet extends HttpServlet {
     private void doMerge(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = param(req, "identifier");
         try {
-            UploadResult result = uploadService.merge(identifier);
+            UploadResult result = uploadService.merge(identifier, token(req));
             writeJson(resp, result.isSuccess() ? 200 : 400, gson.toJson(result));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(UploadResult.error(identifier, "Access denied")));
+        } catch (QuotaExceededException e) {
+            writeJson(resp, 507, gson.toJson(UploadResult.error(identifier, "Storage quota exceeded")));
         } catch (Exception e) {
             // Log the details server-side but return a generic message so internal paths
             // and implementation details are never exposed to the client.
@@ -136,8 +170,10 @@ public class UploadServlet extends HttpServlet {
     private void doMergeAsync(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = param(req, "identifier");
         try {
-            MergeStatus status = uploadService.submitMerge(identifier);
+            MergeStatus status = uploadService.submitMerge(identifier, token(req));
             writeJson(resp, 202, gson.toJson(status));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(MergeStatus.none(identifier)));
         } catch (Exception e) {
             writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
         }
@@ -150,8 +186,10 @@ public class UploadServlet extends HttpServlet {
             return;
         }
         try {
-            MergeStatus status = uploadService.getMergeStatus(identifier);
+            MergeStatus status = uploadService.getMergeStatus(identifier, token(req));
             writeJson(resp, 200, gson.toJson(status));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(MergeStatus.none(identifier)));
         } catch (Exception e) {
             writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
         }
@@ -164,8 +202,10 @@ public class UploadServlet extends HttpServlet {
             return;
         }
         try {
-            UploadProgress progress = uploadService.getProgress(identifier);
+            UploadProgress progress = uploadService.getProgress(identifier, token(req));
             writeJson(resp, 200, gson.toJson(progress));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(UploadProgress.empty(identifier)));
         } catch (Exception e) {
             writeJson(resp, 400, gson.toJson(UploadProgress.empty(identifier)));
         }

@@ -20,7 +20,6 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.TreeSet;
 
 /**
  * Redis-backed {@link TaskStore} based on Jedis. Each task is stored as a string key
@@ -82,9 +81,7 @@ public class RedisTaskStore implements TaskStore {
             if (task == null) {
                 return Optional.empty();
             }
-            if (task.getUploadedChunks() == null) {
-                task.setUploadedChunks(new TreeSet<>());
-            }
+            task.normalize();
             return Optional.of(task);
         }
     }
@@ -126,9 +123,7 @@ public class RedisTaskStore implements TaskStore {
                 try {
                     UploadTask task = gson.fromJson(json, UploadTask.class);
                     if (task != null) {
-                        if (task.getUploadedChunks() == null) {
-                            task.setUploadedChunks(new TreeSet<>());
-                        }
+                        task.normalize();
                         result.add(task);
                     }
                 } catch (RuntimeException ignored) {

@@ -6,12 +6,14 @@
 
 package cn.chenxinjie.uploadfile.core.service;
 
+import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 import org.junit.Rule;
 import org.junit.Test;
@@ -293,6 +295,135 @@ public class StorageCleanupServiceTest {
 
     private static InputStream stream(String data) {
         return new ByteArrayInputStream(data.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void cleanupLockNotAcquiredSkipsPass() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        UploadTask task = task("lock2", 2, System.currentTimeMillis() - 2 * HOUR);
+        store.save(task);
+        chunks.saveChunk("lock2", 0, stream("a"));
+
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, true,
+                new IdentifierLock(), new RejectingLock());
+        svc.cleanup();
+
+        // The lease was not acquired -> nothing is cleaned.
+        assertTrue(store.get("lock2").isPresent());
+        assertTrue(chunks.chunkExists("lock2", 0));
+    }
+
+    @Test
+    public void cleanupLockAcquiredProceedsAndIsReleased() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        UploadTask task = task("lock3", 2, System.currentTimeMillis() - 2 * HOUR);
+        store.save(task);
+        chunks.saveChunk("lock3", 0, stream("a"));
+
+        RecordingLock lock = new RecordingLock();
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, false,
+                new IdentifierLock(), lock);
+        svc.cleanup();
+
+        assertFalse(store.get("lock3").isPresent());
+        assertTrue(lock.acquired);
+        assertTrue(lock.released);
+    }
+
+    @Test
+    public void statsReflectCleanedTasksAndOrphans() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        store.save(task("k1", 1, System.currentTimeMillis())); // kept (fresh)
+        store.save(task("exp", 1, System.currentTimeMillis() - 2 * HOUR)); // expired
+        chunks.saveChunk("exp", 0, stream("e"));
+        chunks.saveChunk("orphan", 0, stream("o")); // no task record
+
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, true);
+        svc.cleanup();
+
+        CleanupStats stats = svc.getLastStats();
+        assertEquals(1, stats.getCleanedTasks());
+        assertEquals(1, stats.getCleanedOrphans());
+        assertTrue(stats.getElapsedMillis() >= 0);
+        assertFalse(stats.isFailed());
+    }
+
+    @Test
+    public void statsListenerReceivesCompletedPass() throws Exception {
+        TaskStore store = newStore();
+        LocalFileChunkStorage chunks = newChunks();
+        store.save(task("exp2", 1, System.currentTimeMillis() - 2 * HOUR));
+        chunks.saveChunk("exp2", 0, stream("e"));
+
+        java.util.concurrent.atomic.AtomicReference<CleanupStats> observed =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, false);
+        svc.setStatsListener(observed::set);
+        svc.cleanup();
+
+        assertNotNull(observed.get());
+        assertEquals(1, observed.get().getCleanedTasks());
+        assertFalse(observed.get().isFailed());
+    }
+
+    @Test
+    public void statsListenerNotifiedOnScheduledFailure() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<CleanupStats> observed =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        StorageCleanupService svc = new StorageCleanupService(
+                new FailingStore(), newChunks(), mergedDir(), HOUR, false);
+        svc.setStatsListener(observed::set);
+        svc.start(30);
+
+        for (int i = 0; i < 100 && observed.get() == null; i++) {
+            Thread.sleep(20);
+        }
+        svc.stop();
+
+        assertNotNull(observed.get());
+        assertTrue(observed.get().isFailed());
+        assertTrue(observed.get().getError() != null && !observed.get().getError().isEmpty());
+    }
+
+    @Test
+    public void initialStatsAreEmptyAndNotFailed() throws Exception {
+        StorageCleanupService svc = new StorageCleanupService(new MemoryTaskStore(), newChunks(), mergedDir(), HOUR, false);
+        CleanupStats stats = svc.getLastStats();
+        assertEquals(0, stats.getCleanedTasks());
+        assertEquals(0, stats.getCleanedOrphans());
+        assertFalse(stats.isFailed());
+    }
+
+    /** {@link CleanupLock} that always denies acquisition. */
+    private static final class RejectingLock implements CleanupLock {
+        @Override
+        public boolean tryAcquire() {
+            return false;
+        }
+
+        @Override
+        public void release() {
+        }
+    }
+
+    /** {@link CleanupLock} that records acquisition/release and always grants. */
+    private static final class RecordingLock implements CleanupLock {
+        boolean acquired;
+        boolean released;
+
+        @Override
+        public boolean tryAcquire() {
+            acquired = true;
+            return true;
+        }
+
+        @Override
+        public void release() {
+            released = true;
+        }
     }
 
     @Test

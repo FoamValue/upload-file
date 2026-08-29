@@ -10,6 +10,7 @@ import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
@@ -19,6 +20,7 @@ import org.springframework.mock.web.MockServletContext;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertThrows;
@@ -130,5 +132,65 @@ public class UploadFileContextTest {
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
         TaskStore store = context.getTaskStore();
         assertTrue(store instanceof MemoryTaskStore);
+    }
+
+    @Test
+    public void rc3InitParamsAreParsed() throws Exception {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("security.enabled", "true");
+        config.addInitParameter("security.token", "secret");
+        config.addInitParameter("security.header-name", "X-Custom-Token");
+        config.addInitParameter("max-file-size", "1024");
+        config.addInitParameter("quota.max-bytes", "2048");
+        config.addInitParameter("observability.log-stats", "false");
+
+        UploadFileContext.Config parsed = UploadFileContext.Config.fromInitParams(config);
+
+        assertTrue(parsed.securityEnabled);
+        assertEquals("secret", parsed.securityToken);
+        assertEquals("X-Custom-Token", parsed.securityHeaderName);
+        assertEquals(1024L, parsed.maxFileSize);
+        assertEquals(2048L, parsed.quotaMaxBytes);
+        assertTrue(!parsed.observabilityLogStats);
+    }
+
+    @Test
+    public void accessTokenHeaderDefaultsAndOverrides() {
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        assertEquals("X-Access-Token", context.getAccessTokenHeader());
+
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.securityHeaderName = "X-Custom";
+        UploadFileContext custom = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+        assertEquals("X-Custom", custom.getAccessTokenHeader());
+    }
+
+    @Test
+    public void securityEnabledWithoutTokenFailsFast() {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.securityEnabled = true;
+        assertThrows(IllegalArgumentException.class,
+                () -> UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config));
+    }
+
+    @Test
+    public void customCleanupLockIsWired() throws Exception {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.cleanupEnabled = true;
+        config.cleanupIntervalMillis = 1000;
+        CleanupLock lock = new CleanupLock() {
+            @Override
+            public boolean tryAcquire() {
+                return true;
+            }
+
+            @Override
+            public void release() {
+            }
+        };
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config, lock);
+        assertNotNull(context.getCleanupService());
+        context.getCleanupService().stop();
     }
 }

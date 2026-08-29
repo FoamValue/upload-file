@@ -44,6 +44,9 @@ public class UploadFileProperties {
     /** Max request size in bytes (multipart), -1 means unlimited. */
     private long maxRequestSize = -1;
 
+    /** Max total size of a single file in bytes, -1 means unlimited. */
+    private long maxFileSize = -1;
+
     /** Metadata store type: auto/memory/file/jdbc/redis (T5). auto keeps the old behavior. */
     private String metadataStore = "auto";
 
@@ -55,6 +58,18 @@ public class UploadFileProperties {
 
     /** Async merge settings. */
     private final AsyncMerge asyncMerge = new AsyncMerge();
+
+    /** Access-control settings. */
+    private final Security security = new Security();
+
+    /** Global capacity quota settings. */
+    private final Quota quota = new Quota();
+
+    /** Observability settings. */
+    private final Observability observability = new Observability();
+
+    /** Task-store migration settings. */
+    private final Migration migration = new Migration();
 
     /** JDBC store settings. */
     private final Jdbc jdbc = new Jdbc();
@@ -118,6 +133,14 @@ public class UploadFileProperties {
         this.maxRequestSize = maxRequestSize;
     }
 
+    public long getMaxFileSize() {
+        return maxFileSize;
+    }
+
+    public void setMaxFileSize(long maxFileSize) {
+        this.maxFileSize = maxFileSize;
+    }
+
     public String getMetadataStore() {
         return metadataStore;
     }
@@ -136,6 +159,22 @@ public class UploadFileProperties {
 
     public AsyncMerge getAsyncMerge() {
         return asyncMerge;
+    }
+
+    public Security getSecurity() {
+        return security;
+    }
+
+    public Quota getQuota() {
+        return quota;
+    }
+
+    public Observability getObservability() {
+        return observability;
+    }
+
+    public Migration getMigration() {
+        return migration;
     }
 
     public Jdbc getJdbc() {
@@ -190,6 +229,9 @@ public class UploadFileProperties {
         /** Whether to enable orphan-data cleanup (T3). Default off for rc.1 compatibility. */
         private boolean orphanEnabled = false;
 
+        /** Whether to use a Redis lease lock so only one instance runs cleanup at a time (rc.3). */
+        private boolean useRedisLock = false;
+
         public boolean isEnabled() {
             return enabled;
         }
@@ -228,6 +270,92 @@ public class UploadFileProperties {
 
         public void setOrphanEnabled(boolean orphanEnabled) {
             this.orphanEnabled = orphanEnabled;
+        }
+
+        public boolean isUseRedisLock() {
+            return useRedisLock;
+        }
+
+        public void setUseRedisLock(boolean useRedisLock) {
+            this.useRedisLock = useRedisLock;
+        }
+    }
+
+    /** {@code upload-file.security.*} */
+    public static class Security {
+        /** Master switch for access control (rc.3). When true, {@code token} must be configured. */
+        private boolean enabled = false;
+
+        /** Shared access token; empty = no checks. */
+        private String token = "";
+
+        /** Token header name; a {@code token} query param is also accepted. */
+        private String headerName = "X-Access-Token";
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public String getToken() {
+            return token;
+        }
+
+        public void setToken(String token) {
+            this.token = token;
+        }
+
+        public String getHeaderName() {
+            return headerName;
+        }
+
+        public void setHeaderName(String headerName) {
+            this.headerName = headerName;
+        }
+    }
+
+    /** {@code upload-file.quota.*} */
+    public static class Quota {
+        /** Global capacity quota in bytes, 0 or negative = off (rc.3). */
+        private long maxBytes = 0;
+
+        public long getMaxBytes() {
+            return maxBytes;
+        }
+
+        public void setMaxBytes(long maxBytes) {
+            this.maxBytes = maxBytes;
+        }
+    }
+
+    /** {@code upload-file.observability.*} */
+    public static class Observability {
+        /** Whether to log a structured cleanup-stats line after each cleanup pass (rc.3). */
+        private boolean logStats = true;
+
+        public boolean isLogStats() {
+            return logStats;
+        }
+
+        public void setLogStats(boolean logStats) {
+            this.logStats = logStats;
+        }
+    }
+
+    /** {@code upload-file.migration.*} */
+    public static class Migration {
+        /** Whether to expose the {@code TaskStoreMigrator} bean (rc.3); migration never runs automatically. */
+        private boolean enabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
         }
     }
 

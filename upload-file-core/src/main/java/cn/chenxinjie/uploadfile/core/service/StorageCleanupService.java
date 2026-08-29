@@ -6,10 +6,12 @@
 
 package cn.chenxinjie.uploadfile.core.service;
 
+import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 
 import java.io.File;
@@ -37,6 +39,9 @@ import java.util.stream.Stream;
  *
  * <p>The core stays free of framework dependencies; an optional {@link Consumer} can be registered to
  * observe cleanup errors (e.g. wired to a logger by the integration module).</p>
+ *
+ * <p>When a {@link CleanupLock} is supplied, each scheduled pass first acquires the lease and is skipped
+ * when another instance already holds it, so multi-instance deployments do not run duplicate cleanup.</p>
  */
 public class StorageCleanupService {
 
@@ -46,11 +51,14 @@ public class StorageCleanupService {
     private final long taskTtlMillis;
     private final boolean orphanEnabled;
     private final IdentifierLock identifierLock;
+    private final CleanupLock cleanupLock;
 
     private ScheduledExecutorService scheduler = newScheduler();
 
     private volatile boolean started;
     private volatile Consumer<Throwable> errorListener;
+    private volatile Consumer<CleanupStats> statsListener;
+    private volatile CleanupStats lastStats = new CleanupStats();
 
     private static ScheduledExecutorService newScheduler() {
         return new ScheduledThreadPoolExecutor(1, r -> {
@@ -62,7 +70,7 @@ public class StorageCleanupService {
 
     public StorageCleanupService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
                                  long taskTtlMillis, boolean orphanEnabled) {
-        this(taskStore, chunkStorage, mergedFileDir, taskTtlMillis, orphanEnabled, null);
+        this(taskStore, chunkStorage, mergedFileDir, taskTtlMillis, orphanEnabled, null, null);
     }
 
     /**
@@ -71,12 +79,22 @@ public class StorageCleanupService {
      */
     public StorageCleanupService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
                                  long taskTtlMillis, boolean orphanEnabled, IdentifierLock identifierLock) {
+        this(taskStore, chunkStorage, mergedFileDir, taskTtlMillis, orphanEnabled, identifierLock, null);
+    }
+
+    /**
+     * Creates the service with a shared identifier lock and an optional distributed {@link CleanupLock}.
+     */
+    public StorageCleanupService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
+                                 long taskTtlMillis, boolean orphanEnabled, IdentifierLock identifierLock,
+                                 CleanupLock cleanupLock) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.chunkStorage = Objects.requireNonNull(chunkStorage, "chunkStorage");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
         this.taskTtlMillis = taskTtlMillis;
         this.orphanEnabled = orphanEnabled;
         this.identifierLock = identifierLock;
+        this.cleanupLock = cleanupLock;
     }
 
     /**
@@ -84,6 +102,27 @@ public class StorageCleanupService {
      */
     public void setErrorListener(Consumer<Throwable> errorListener) {
         this.errorListener = errorListener;
+    }
+
+    /**
+     * Registers a listener invoked after each completed cleanup pass with its statistics.
+     */
+    public void setStatsListener(Consumer<CleanupStats> statsListener) {
+        this.statsListener = statsListener;
+    }
+
+    /**
+     * Returns a snapshot of the most recent cleanup statistics (initially all zero).
+     */
+    public CleanupStats getLastStats() {
+        CleanupStats snapshot = lastStats;
+        CleanupStats copy = new CleanupStats();
+        copy.setLastRunTime(snapshot.getLastRunTime());
+        copy.setCleanedTasks(snapshot.getCleanedTasks());
+        copy.setCleanedOrphans(snapshot.getCleanedOrphans());
+        copy.setElapsedMillis(snapshot.getElapsedMillis());
+        copy.setError(snapshot.getError());
+        return copy;
     }
 
     /**
@@ -103,6 +142,7 @@ public class StorageCleanupService {
             try {
                 cleanup();
             } catch (Throwable t) {
+                recordFailure(t);
                 Consumer<Throwable> listener = errorListener;
                 if (listener != null) {
                     listener.accept(t);
@@ -110,6 +150,17 @@ public class StorageCleanupService {
             }
         }, intervalMillis, intervalMillis, TimeUnit.MILLISECONDS);
         started = true;
+    }
+
+    private void recordFailure(Throwable t) {
+        CleanupStats failed = new CleanupStats();
+        failed.setLastRunTime(System.currentTimeMillis());
+        failed.setError(t.toString());
+        lastStats = failed;
+        Consumer<CleanupStats> listener = statsListener;
+        if (listener != null) {
+            listener.accept(failed);
+        }
     }
 
     /**
@@ -126,15 +177,37 @@ public class StorageCleanupService {
 
     /**
      * Runs a single cleanup pass synchronously (expired tasks, then orphans when enabled).
+     *
+     * <p>When a distributed {@link CleanupLock} is configured and it cannot be acquired (another
+     * instance is cleaning), the pass is skipped without touching any data.</p>
      */
     public void cleanup() {
-        cleanupExpiredTasks();
-        if (orphanEnabled) {
-            cleanupOrphans();
+        CleanupStats run = new CleanupStats();
+        run.setLastRunTime(System.currentTimeMillis());
+        long startedAt = System.currentTimeMillis();
+        if (cleanupLock != null && !cleanupLock.tryAcquire()) {
+            // Another instance holds the lease; skip this round entirely.
+            return;
+        }
+        try {
+            cleanupExpiredTasks(run);
+            if (orphanEnabled) {
+                cleanupOrphans(run);
+            }
+        } finally {
+            if (cleanupLock != null) {
+                cleanupLock.release();
+            }
+        }
+        run.setElapsedMillis(System.currentTimeMillis() - startedAt);
+        lastStats = run;
+        Consumer<CleanupStats> listener = statsListener;
+        if (listener != null) {
+            listener.accept(run);
         }
     }
 
-    private void cleanupExpiredTasks() {
+    private void cleanupExpiredTasks(CleanupStats run) {
         if (taskTtlMillis <= 0) {
             return;
         }
@@ -156,13 +229,14 @@ public class StorageCleanupService {
                         // Remove the chunks first so no orphan chunk data is left behind.
                         chunkStorage.deleteChunks(identifier);
                         taskStore.remove(identifier);
+                        run.setCleanedTasks(run.getCleanedTasks() + 1);
                     }
                 }
             }
         }
     }
 
-    private void cleanupOrphans() {
+    private void cleanupOrphans(CleanupStats run) {
         if (taskStore instanceof MemoryTaskStore) {
             // With an in-memory store all task records are lost on restart, so every on-disk dir
             // would look like an orphan and be deleted; never run the orphan scan against it.
@@ -181,6 +255,7 @@ public class StorageCleanupService {
                 // Re-check after acquiring the lock: a task may have been created while scanning.
                 if (!hasTask(identifier)) {
                     chunkStorage.deleteChunks(identifier);
+                    run.setCleanedOrphans(run.getCleanedOrphans() + 1);
                 }
             }
         }
@@ -196,6 +271,7 @@ public class StorageCleanupService {
                     synchronized (lockFor(identifier)) {
                         if (!hasTask(identifier)) {
                             deleteDirectory(child.toPath());
+                            run.setCleanedOrphans(run.getCleanedOrphans() + 1);
                         }
                     }
                 }

@@ -21,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.TreeSet;
 
 /**
  * JDBC-backed {@link TaskStore} on a table
@@ -93,9 +92,7 @@ public class JdbcTaskStore implements TaskStore {
                 if (task == null) {
                     return Optional.empty();
                 }
-                if (task.getUploadedChunks() == null) {
-                    task.setUploadedChunks(new TreeSet<>());
-                }
+                task.normalize();
                 return Optional.of(task);
             }
         } catch (SQLException e) {
@@ -162,9 +159,7 @@ public class JdbcTaskStore implements TaskStore {
                 try {
                     UploadTask task = gson.fromJson(rs.getString("data"), UploadTask.class);
                     if (task != null) {
-                        if (task.getUploadedChunks() == null) {
-                            task.setUploadedChunks(new TreeSet<>());
-                        }
+                        task.normalize();
                         result.add(task);
                     }
                 } catch (RuntimeException ignored) {

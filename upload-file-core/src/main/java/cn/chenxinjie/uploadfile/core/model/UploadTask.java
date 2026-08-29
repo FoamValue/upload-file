@@ -36,11 +36,33 @@ public class UploadTask {
     /** Timestamp when the async merge entered the RUNNING state. */
     private long mergeStartedAt;
 
+    /**
+     * Metadata format version. Records written since rc.3 carry {@link #CURRENT_SCHEMA_VERSION};
+     * records missing the field (written by rc.2 or earlier) are normalized to {@code 1} on load.
+     * Any future format change must bump this version and provide a migration path.
+     */
+    private int schemaVersion;
+
+    public static final int CURRENT_SCHEMA_VERSION = 1;
+
     public static final String MERGE_STATE_NONE = "NONE";
     public static final String MERGE_STATE_PENDING = "PENDING";
     public static final String MERGE_STATE_RUNNING = "RUNNING";
     public static final String MERGE_STATE_SUCCEEDED = "SUCCEEDED";
     public static final String MERGE_STATE_FAILED = "FAILED";
+
+    /**
+     * Normalizes a task deserialized from external storage: ensures the uploaded-chunk set is
+     * never null and old metadata without a {@code schemaVersion} is treated as {@code 1}.
+     */
+    public void normalize() {
+        if (uploadedChunks == null) {
+            uploadedChunks = new TreeSet<>();
+        }
+        if (schemaVersion <= 0) {
+            schemaVersion = CURRENT_SCHEMA_VERSION;
+        }
+    }
 
     /**
      * Returns the async-merge state, never null; missing fields in old metadata
@@ -57,6 +79,7 @@ public class UploadTask {
         task.setFileSize(req.getFileSize());
         task.setChunkSize(req.getChunkSize());
         task.setChunkTotal(req.getChunkTotal());
+        task.setSchemaVersion(CURRENT_SCHEMA_VERSION);
         long now = System.currentTimeMillis();
         task.setCreateTime(now);
         task.setUpdateTime(now);
@@ -190,5 +213,13 @@ public class UploadTask {
 
     public void setMergeStartedAt(long mergeStartedAt) {
         this.mergeStartedAt = mergeStartedAt;
+    }
+
+    public int getSchemaVersion() {
+        return schemaVersion;
+    }
+
+    public void setSchemaVersion(int schemaVersion) {
+        this.schemaVersion = schemaVersion;
     }
 }

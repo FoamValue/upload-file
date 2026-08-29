@@ -7,11 +7,14 @@
 package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
+import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
+import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
@@ -52,9 +55,16 @@ public class ResumableUploadService {
     private final boolean mergeFsync;
     private final boolean mergeAtomic;
     private final IdentifierLock identifierLock;
+    private volatile AccessControl accessControl;
 
     /** Maximum bytes accepted for a single chunk; 0 or negative means unlimited. */
     private volatile long maxChunkBytes;
+
+    /** Maximum total bytes for a single file; 0 or negative means unlimited. */
+    private volatile long maxFileBytes;
+
+    /** Maximum total on-disk capacity in bytes; 0 or negative means unlimited. */
+    private volatile long maxTotalBytes;
 
     /** Async merge executor; when null, async merge is disabled and only the synchronous entry is used. */
     private volatile ExecutorService asyncExecutor;
@@ -79,6 +89,16 @@ public class ResumableUploadService {
     public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
                                   boolean verifyChecksum, boolean mergeFsync, boolean mergeAtomic,
                                   IdentifierLock identifierLock) {
+        this(taskStore, chunkStorage, mergedFileDir, verifyChecksum, mergeFsync, mergeAtomic, identifierLock,
+                PermitAllAccessControl.INSTANCE);
+    }
+
+    /**
+     * Creates the service with a caller-provided shared lock and access control.
+     */
+    public ResumableUploadService(TaskStore taskStore, ChunkStorage chunkStorage, File mergedFileDir,
+                                  boolean verifyChecksum, boolean mergeFsync, boolean mergeAtomic,
+                                  IdentifierLock identifierLock, AccessControl accessControl) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.chunkStorage = Objects.requireNonNull(chunkStorage, "chunkStorage");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
@@ -86,6 +106,14 @@ public class ResumableUploadService {
         this.mergeFsync = mergeFsync;
         this.mergeAtomic = mergeAtomic;
         this.identifierLock = Objects.requireNonNull(identifierLock, "identifierLock");
+        this.accessControl = Objects.requireNonNull(accessControl, "accessControl");
+    }
+
+    /**
+     * Replaces the access-control policy; defaults to {@link PermitAllAccessControl} (no-op).
+     */
+    public void setAccessControl(AccessControl accessControl) {
+        this.accessControl = accessControl;
     }
 
     /**
@@ -109,6 +137,23 @@ public class ResumableUploadService {
         this.maxChunkBytes = maxChunkBytes;
     }
 
+    /**
+     * Sets the maximum total size of a single file; 0 or negative disables the limit. The declared
+     * {@code fileSize} is checked when the task is created (first chunk) and again before merging.
+     */
+    public void setMaxFileBytes(long maxFileBytes) {
+        this.maxFileBytes = maxFileBytes;
+    }
+
+    /**
+     * Sets the maximum total on-disk capacity; 0 or negative disables the quota. The limit is
+     * checked approximately by summing the declared sizes of in-progress tasks and the final sizes
+     * of merged tasks, before accepting a new task and before merging.
+     */
+    public void setMaxTotalBytes(long maxTotalBytes) {
+        this.maxTotalBytes = maxTotalBytes;
+    }
+
     private Object lockFor(String identifier) {
         // Hash the identifier into a fixed-size bucket so concurrent uploads of the
         // same file are serialized without allocating an unbounded number of locks.
@@ -125,9 +170,17 @@ public class ResumableUploadService {
      *         (only the offending chunk is rejected; other uploaded chunks are unaffected)
      */
     public UploadProgress uploadChunk(ChunkUploadRequest request, InputStream in) throws IOException {
+        return uploadChunk(request, null, in);
+    }
+
+    /**
+     * Uploads a chunk with an access token (see {@link AccessControl}).
+     */
+    public UploadProgress uploadChunk(ChunkUploadRequest request, String token, InputStream in) throws IOException {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(in, "inputStream");
         String identifier = StringUtil.requireSafeIdentifier(request.getIdentifier());
+        accessControl.check(identifier, AccessControl.ACTION_UPLOAD, token);
         int chunkIndex = request.getChunkIndex();
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
@@ -143,6 +196,13 @@ public class ResumableUploadService {
             if (task == null) {
                 // First chunk of this identifier: create the task record before storing any chunk.
                 StringUtil.requireSafeFileName(request.getFileName());
+                if (maxFileBytes > 0 && request.getFileSize() > maxFileBytes) {
+                    throw new IllegalArgumentException("File size " + request.getFileSize()
+                            + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
+                }
+                if (maxTotalBytes > 0 && request.getFileSize() > 0) {
+                    checkQuota(identifier, request.getFileSize());
+                }
                 task = UploadTask.from(request);
                 task.setChunkSize(chunkSize);
                 taskStore.save(task);
@@ -222,7 +282,15 @@ public class ResumableUploadService {
      * so the client can treat it as a brand-new upload.
      */
     public UploadProgress getProgress(String identifier) {
+        return getProgress(identifier, null);
+    }
+
+    /**
+     * Queries upload progress with an access token (see {@link AccessControl}).
+     */
+    public UploadProgress getProgress(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
+        accessControl.check(identifier, AccessControl.ACTION_PROGRESS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? UploadProgress.empty(identifier) : UploadProgress.from(task);
     }
@@ -247,7 +315,15 @@ public class ResumableUploadService {
      * @throws NoSuchElementException the task does not exist
      */
     public UploadResult merge(String identifier) throws IOException {
+        return merge(identifier, null);
+    }
+
+    /**
+     * Merges with an access token (see {@link AccessControl}).
+     */
+    public UploadResult merge(String identifier, String token) throws IOException {
         StringUtil.requireSafeIdentifier(identifier);
+        accessControl.check(identifier, AccessControl.ACTION_MERGE, token);
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
@@ -255,6 +331,13 @@ public class ResumableUploadService {
             }
             if (task.isMerged()) {
                 return UploadResult.merged(task, task.getFinalPath(), task.getFinalFileSize());
+            }
+            if (maxFileBytes > 0 && task.getFileSize() > maxFileBytes) {
+                throw new IllegalArgumentException("File size " + task.getFileSize()
+                        + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
+            }
+            if (maxTotalBytes > 0) {
+                checkQuota(identifier, task.getFileSize());
             }
             int missing = 0;
             for (int i = 0; i < task.getChunkTotal(); i++) {
@@ -319,7 +402,15 @@ public class ResumableUploadService {
      * @throws NoSuchElementException the task does not exist
      */
     public MergeStatus submitMerge(String identifier) {
+        return submitMerge(identifier, null);
+    }
+
+    /**
+     * Submits the merge with an access token (see {@link AccessControl}).
+     */
+    public MergeStatus submitMerge(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
+        accessControl.check(identifier, AccessControl.ACTION_MERGE_ASYNC, token);
         if (asyncExecutor == null) {
             throw new IllegalStateException("Async merge is not enabled");
         }
@@ -356,7 +447,15 @@ public class ResumableUploadService {
      * Returns the async merge status; {@code NONE} when the task does not exist or was never submitted.
      */
     public MergeStatus getMergeStatus(String identifier) {
+        return getMergeStatus(identifier, null);
+    }
+
+    /**
+     * Returns the async merge status with an access token (see {@link AccessControl}).
+     */
+    public MergeStatus getMergeStatus(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
+        accessControl.check(identifier, AccessControl.ACTION_MERGE_STATUS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? MergeStatus.none(identifier) : MergeStatus.from(task);
     }
@@ -423,6 +522,27 @@ public class ResumableUploadService {
         } catch (AtomicMoveNotSupportedException e) {
             // Some file systems do not support atomic moves; fall back to a plain rename.
             Files.move(src, target, StandardCopyOption.REPLACE_EXISTING);
+        }
+    }
+
+    /**
+     * Approximate capacity check: the usage is the sum of the final sizes of merged tasks and the
+     * declared sizes of in-progress tasks (excluding {@code excludeIdentifier} when given), plus the
+     * incoming {@code extraBytes}. When the total would exceed the configured quota the request is
+     * rejected, guarding against disk exhaustion across many uploads.
+     */
+    private void checkQuota(String excludeIdentifier, long extraBytes) {
+        long used = 0;
+        for (UploadTask t : taskStore.list()) {
+            if (excludeIdentifier != null && excludeIdentifier.equals(t.getIdentifier())) {
+                continue;
+            }
+            used += Math.max(0, t.isMerged() ? t.getFinalFileSize() : t.getFileSize());
+        }
+        long requested = Math.max(0, extraBytes);
+        if (maxTotalBytes > 0 && used + requested > maxTotalBytes) {
+            throw new QuotaExceededException("Storage quota exceeded: used " + used
+                    + " bytes, requested " + requested + " bytes, limit " + maxTotalBytes + " bytes");
         }
     }
 

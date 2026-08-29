@@ -6,6 +6,10 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.model.CleanupStats;
+import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
+import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import cn.chenxinjie.uploadfile.core.service.StorageCleanupService;
@@ -14,6 +18,7 @@ import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
 
 import javax.servlet.ServletConfig;
@@ -24,6 +29,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 /**
  * Runtime context shared by the upload/download servlets, attached as a {@link ServletContext} attribute.
@@ -43,6 +50,14 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>{@code async-merge.enabled}: enable async merge (default {@code false})</li>
  *   <li>{@code async-merge.thread-pool-size}: async merge thread count (default {@code 2})</li>
  *   <li>{@code chunk.max-size}: maximum bytes accepted for a single chunk, 0 = unlimited (default {@code 0})</li>
+ *   <li>{@code security.enabled}: enable access-control checks (default {@code false})</li>
+ *   <li>{@code security.token}: shared access token; empty = no checks (default empty)</li>
+ *   <li>{@code security.header-name}: token header name (default {@code X-Access-Token})</li>
+ *   <li>{@code max-file-size}: per-file total size limit in bytes, 0 = unlimited (default {@code 0})</li>
+ *   <li>{@code quota.max-bytes}: global capacity quota in bytes, 0 = off (default {@code 0})</li>
+ *   <li>{@code cleanup.use-redis-lock}: use a distributed cleanup lease lock (default {@code false});
+ *       requires the lock to be supplied via {@link #build(String, String, Config, CleanupLock)}</li>
+ *   <li>{@code observability.log-stats}: log cleanup statistics (default {@code true})</li>
  * </ul>
  *
  * <p>All cleanup/async threads are daemon threads, so they terminate with the container.</p>
@@ -51,22 +66,39 @@ public final class UploadFileContext {
 
     public static final String ATTRIBUTE_NAME = UploadFileContext.class.getName();
 
+    private static final Logger CLEANUP_LOG = Logger.getLogger(StorageCleanupService.class.getName());
+
+    /** Writes a structured cleanup-statistics log line (wired when {@code observability.log-stats}). */
+    private static final java.util.function.Consumer<CleanupStats> CLEANUP_LOG_LISTENER = stats ->
+            CLEANUP_LOG.log(Level.INFO, "upload-file cleanup: {{0}}", describe(stats));
+
+    private static String describe(CleanupStats stats) {
+        return "run=" + stats.getLastRunTime()
+                + ", cleanedTasks=" + stats.getCleanedTasks()
+                + ", cleanedOrphans=" + stats.getCleanedOrphans()
+                + ", elapsedMs=" + stats.getElapsedMillis()
+                + ", error=" + (stats.getError() == null ? "null" : stats.getError());
+    }
+
     private final TaskStore taskStore;
     private final ResumableUploadService uploadService;
     private final ResumableDownloadService downloadService;
     private final StorageCleanupService cleanupService;
     private final ExecutorService asyncExecutor;
+    private final String accessTokenHeader;
 
     public UploadFileContext(TaskStore taskStore,
                              ResumableUploadService uploadService,
                              ResumableDownloadService downloadService,
                              StorageCleanupService cleanupService,
-                             ExecutorService asyncExecutor) {
+                             ExecutorService asyncExecutor,
+                             String accessTokenHeader) {
         this.taskStore = taskStore;
         this.uploadService = uploadService;
         this.downloadService = downloadService;
         this.cleanupService = cleanupService;
         this.asyncExecutor = asyncExecutor;
+        this.accessTokenHeader = accessTokenHeader;
     }
 
     public static UploadFileContext getOrCreate(ServletContext servletContext, ServletConfig config) {
@@ -96,17 +128,44 @@ public final class UploadFileContext {
      * cleanup scheduler / async executor when enabled.
      */
     public static UploadFileContext build(String storageDir, String metadataDir, Config config) {
+        return build(storageDir, metadataDir, config, null);
+    }
+
+    /**
+     * Builds a context with explicit settings and an optional distributed {@link CleanupLock}
+     * (e.g. a Redis lease lock); when non-null, multi-instance cleanup is coordinated.
+     */
+    public static UploadFileContext build(String storageDir, String metadataDir, Config config, CleanupLock cleanupLock) {
         TaskStore store = createStore(metadataDir, config);
         ChunkStorage chunkStorage = new LocalFileChunkStorage(Paths.get(storageDir, "chunks"));
         File mergedDir = Paths.get(storageDir, "files").toFile();
+
+        AccessControl accessControl;
+        if (config.securityEnabled) {
+            // Fail fast: enabling security without a token must not silently open the endpoints.
+            if (config.securityToken == null || config.securityToken.trim().isEmpty()) {
+                throw new IllegalArgumentException(
+                        "security.enabled=true requires security.token to be configured");
+            }
+            accessControl = new TokenAccessControl(config.securityToken);
+        } else {
+            accessControl = PermitAllAccessControl.INSTANCE;
+        }
 
         // A single shared lock keeps the upload service and the cleanup service mutually
         // exclusive for the same identifier.
         IdentifierLock identifierLock = new IdentifierLock();
         ResumableUploadService uploadService = new ResumableUploadService(
-                store, chunkStorage, mergedDir, true, config.mergeFsync, config.mergeAtomic, identifierLock);
+                store, chunkStorage, mergedDir, true, config.mergeFsync, config.mergeAtomic, identifierLock,
+                accessControl);
         if (config.maxChunkSize > 0) {
             uploadService.setMaxChunkBytes(config.maxChunkSize);
+        }
+        if (config.maxFileSize > 0) {
+            uploadService.setMaxFileBytes(config.maxFileSize);
+        }
+        if (config.quotaMaxBytes > 0) {
+            uploadService.setMaxTotalBytes(config.quotaMaxBytes);
         }
 
         ExecutorService asyncExecutor = null;
@@ -126,10 +185,14 @@ public final class UploadFileContext {
         }
 
         ResumableDownloadService downloadService = new ResumableDownloadService(store, mergedDir);
+        downloadService.setAccessControl(accessControl);
 
         StorageCleanupService cleanupService = new StorageCleanupService(
                 store, chunkStorage, mergedDir, config.cleanupTaskTtlMillis, config.cleanupOrphanEnabled,
-                identifierLock);
+                identifierLock, cleanupLock);
+        if (config.observabilityLogStats) {
+            cleanupService.setStatsListener(CLEANUP_LOG_LISTENER);
+        }
         if (config.cleanupEnabled) {
             cleanupService.start(config.cleanupIntervalMillis);
             if (config.cleanupRunOnStartup) {
@@ -137,7 +200,8 @@ public final class UploadFileContext {
             }
         }
 
-        return new UploadFileContext(store, uploadService, downloadService, cleanupService, asyncExecutor);
+        return new UploadFileContext(store, uploadService, downloadService, cleanupService, asyncExecutor,
+                config.securityHeaderName);
     }
 
     private static TaskStore createStore(String metadataDir, Config config) {
@@ -179,8 +243,13 @@ public final class UploadFileContext {
         return asyncExecutor;
     }
 
+    /** The configured access-token header name (default {@code X-Access-Token}). */
+    public String getAccessTokenHeader() {
+        return accessTokenHeader;
+    }
+
     /**
-     * Parsed init-param settings for the rc.2 features; all defaults preserve rc.1 behavior.
+     * Parsed init-param settings for the rc.3 features; all defaults preserve rc.1 behavior.
      */
     public static class Config {
         public String metadataStore = "auto";
@@ -194,6 +263,13 @@ public final class UploadFileContext {
         public boolean asyncMergeEnabled = false;
         public int asyncMergeThreadPoolSize = 2;
         public long maxChunkSize = 0;
+        public boolean securityEnabled = false;
+        public String securityToken = "";
+        public String securityHeaderName = "X-Access-Token";
+        public long maxFileSize = 0;
+        public long quotaMaxBytes = 0;
+        public boolean observabilityLogStats = true;
+        public boolean cleanupUseRedisLock = false;
 
         public static Config fromInitParams(ServletConfig config) {
             Config c = new Config();
@@ -208,6 +284,13 @@ public final class UploadFileContext {
             c.asyncMergeEnabled = boolParam(config, "async-merge.enabled", c.asyncMergeEnabled);
             c.asyncMergeThreadPoolSize = intParam(config, "async-merge.thread-pool-size", c.asyncMergeThreadPoolSize);
             c.maxChunkSize = longParam(config, "chunk.max-size", c.maxChunkSize);
+            c.securityEnabled = boolParam(config, "security.enabled", c.securityEnabled);
+            c.securityToken = initParam(config, "security.token", c.securityToken);
+            c.securityHeaderName = initParam(config, "security.header-name", c.securityHeaderName);
+            c.maxFileSize = longParam(config, "max-file-size", c.maxFileSize);
+            c.quotaMaxBytes = longParam(config, "quota.max-bytes", c.quotaMaxBytes);
+            c.observabilityLogStats = boolParam(config, "observability.log-stats", c.observabilityLogStats);
+            c.cleanupUseRedisLock = boolParam(config, "cleanup.use-redis-lock", c.cleanupUseRedisLock);
             return c;
         }
 

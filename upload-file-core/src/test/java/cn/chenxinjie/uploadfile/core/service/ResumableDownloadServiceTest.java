@@ -6,7 +6,9 @@
 
 package cn.chenxinjie.uploadfile.core.service;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
+import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import org.junit.Before;
@@ -23,6 +25,7 @@ import java.util.Optional;
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertThrows;
 import static org.junit.Assert.assertTrue;
 
 public class ResumableDownloadServiceTest {
@@ -126,5 +129,39 @@ public class ResumableDownloadServiceTest {
         // Only the 5 remaining bytes are available; the rest is silently skipped.
         assertEquals(5, written);
         assertEquals("world", new String(out.toByteArray(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    public void accessControlDeniesDownloadWithoutToken() throws Exception {
+        File target = writeMergedFile("d1");
+        store.save(mergedTask("d1", "demo.txt", target.getAbsolutePath()));
+        service.setAccessControl(new TokenAccessControl("tk"));
+
+        assertThrows(AccessDeniedException.class, () -> service.resolveFile("d1"));
+        assertThrows(AccessDeniedException.class, () -> service.resolveFileName("d1"));
+    }
+
+    @Test
+    public void accessControlAllowsDownloadWithCorrectToken() throws Exception {
+        File target = writeMergedFile("d2");
+        store.save(mergedTask("d2", "demo.txt", target.getAbsolutePath()));
+        service.setAccessControl(new TokenAccessControl("tk"));
+
+        assertTrue(service.resolveFile("d2", "tk").isPresent());
+        assertEquals("demo.txt", service.resolveFileName("d2", "tk"));
+    }
+
+    @Test
+    public void accessControlDeniesWithWrongToken() throws Exception {
+        service.setAccessControl(new TokenAccessControl("tk"));
+        assertThrows(AccessDeniedException.class, () -> service.resolveFile("d3", "nope"));
+    }
+
+    private File writeMergedFile(String id) throws Exception {
+        File file = new File(mergedDir, id);
+        Files.createDirectories(file.toPath());
+        File target = new File(file, "demo.txt");
+        Files.write(target.toPath(), "hello".getBytes(StandardCharsets.UTF_8));
+        return target;
     }
 }

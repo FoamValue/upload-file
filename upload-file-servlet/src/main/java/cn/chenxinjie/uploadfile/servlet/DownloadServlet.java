@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.model.DownloadRange;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
 
@@ -43,8 +44,17 @@ public class DownloadServlet extends HttpServlet {
 
     private ResumableDownloadService downloadService;
 
+    /** Name of the header carrying the access token; a {@code token} query param is also accepted. */
+    private volatile String accessTokenHeader = "X-Access-Token";
+
     public void setDownloadService(ResumableDownloadService downloadService) {
         this.downloadService = downloadService;
+    }
+
+    public void setAccessTokenHeader(String accessTokenHeader) {
+        if (accessTokenHeader != null && !accessTokenHeader.trim().isEmpty()) {
+            this.accessTokenHeader = accessTokenHeader.trim();
+        }
     }
 
     @Override
@@ -53,7 +63,18 @@ public class DownloadServlet extends HttpServlet {
         if (downloadService == null) {
             UploadFileContext context = UploadFileContext.getOrCreate(config.getServletContext(), config);
             downloadService = context.getDownloadService();
+            accessTokenHeader = context.getAccessTokenHeader();
         }
+    }
+
+    /** Reads the access token from the configured header, falling back to a {@code token} query param. */
+    private String token(HttpServletRequest req) {
+        String fromHeader = req.getHeader(accessTokenHeader);
+        if (fromHeader != null && !fromHeader.trim().isEmpty()) {
+            return fromHeader.trim();
+        }
+        String fromParam = req.getParameter("token");
+        return fromParam == null || fromParam.trim().isEmpty() ? null : fromParam.trim();
     }
 
     @Override
@@ -63,13 +84,20 @@ public class DownloadServlet extends HttpServlet {
             resp.sendError(400, "Missing identifier");
             return;
         }
-        Optional<File> fileOpt = downloadService.resolveFile(identifier);
+        String token = token(req);
+        Optional<File> fileOpt;
+        try {
+            fileOpt = downloadService.resolveFile(identifier, token);
+        } catch (AccessDeniedException e) {
+            resp.sendError(401, "Access denied");
+            return;
+        }
         if (!fileOpt.isPresent()) {
             resp.sendError(404, "File not found: " + identifier);
             return;
         }
         File file = fileOpt.get();
-        String fileName = downloadService.resolveFileName(identifier);
+        String fileName = downloadService.resolveFileName(identifier, token);
 
         resp.setHeader("Accept-Ranges", "bytes");
         setDisposition(resp, fileName);

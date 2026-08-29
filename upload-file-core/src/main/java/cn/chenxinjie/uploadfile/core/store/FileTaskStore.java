@@ -26,7 +26,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -78,9 +77,7 @@ public class FileTaskStore implements TaskStore {
             if (task == null) {
                 return Optional.empty();
             }
-            if (task.getUploadedChunks() == null) {
-                task.setUploadedChunks(new TreeSet<>());
-            }
+            task.normalize();
             cache.put(identifier, task);
             return Optional.of(task);
         } catch (IOException e) {
