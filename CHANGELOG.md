@@ -9,11 +9,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+
+- Spring Boot 3.x (`jakarta.servlet`) adapter.
+
+## [1.0.0-rc.3] - 2026-08-29
+
+**Pre-release.** Production-readiness hardening before the `1.0.0` GA. All new features are off by
+default, so upgrading from `rc.2` keeps the existing behavior byte-for-byte (regression-covered by
+the new compat suite).
+
+### Added
+
+- **Access control (T6)**: `AccessControl` SPI with `PermitAllAccessControl` (default, no-op) and
+  `TokenAccessControl` (constant-time shared-token comparison); every upload/progress/merge/async-merge/
+  download entry point is checked; missing or wrong tokens return `401`
+- **File size & capacity quota (T8)**: `max-file-size` per-file limit (checked on first chunk and
+  before merge) and optional `quota.max-bytes` global capacity quota (approximate, returns
+  `507 Insufficient Storage`)
+- **Cleanup observability (T9)**: `CleanupStats` snapshot (`getLastStats()`) plus a stats listener;
+  the integrations log one structured line per pass (`observability.log-stats`, default `true`)
+- **Task-store migration (T10)**: `TaskStoreMigrator` copies in-flight tasks between stores
+  (e.g. `FileTaskStore` → `JdbcTaskStore` / `RedisTaskStore`); explicit and idempotent, never
+  runs automatically (`migration.enabled` exposes the bean)
+- **Metadata schema version (T11)**: `UploadTask.schemaVersion` (current `1`); records missing the
+  field are normalized to `1` on load
+- **Multi-instance cleanup lock (T7)**: `CleanupLock` SPI with `RedisCleanupLock` (`SET NX EX` lease)
+  in the redis module; when the lease cannot be acquired a pass is skipped (`cleanup.use-redis-lock`)
+- New properties: `security.enabled`, `security.token`, `security.header-name`, `max-file-size`,
+  `quota.max-bytes`, `cleanup.use-redis-lock`, `observability.log-stats`, `migration.enabled`;
+  matching Servlet init-params
+- **Compat regression suite (T12)**: boots against rc.2 metadata JSON + directory layout and
+  verifies default-config behavior; covers the two high-risk combinations (C1: silent TTL deletion,
+  C2: in-memory store + orphan GC)
+
+### Changed
+
+- `ResumableUploadService` / `ResumableDownloadService` gained token-carrying overloads
+  (`uploadChunk(req, token, in)`, `merge(id, token)`, `resolveFile(id, token)`, ...); the old
+  signatures delegate with no token and are unchanged
+- Enabling `security.enabled` without a token fails fast at startup (servlet context and
+  Spring Boot) so a misconfiguration never silently opens the endpoints
+
+### Security
+
+- Optional shared-token access control on every endpoint (constant-time comparison, off by default)
+- `max-file-size` / `max-file-size` init-param rejects oversized files before they are persisted
+- `quota.max-bytes` guards against disk exhaustion across many uploads
+
 ### Fixed
 
-- `upload-file-spring-boot-starter` metadata binding: `UploadFileProperties` used flat fields, so the documented dotted property names (`merge.fsync`, `cleanup.enabled`, `cleanup.interval`, `jdbc.table-name`, `redis.key-prefix`, ...) were silently ignored by Spring Boot's `@ConfigurationProperties`. The properties are now grouped into nested `merge` / `cleanup` / `async-merge` / `jdbc` / `redis` classes, so the documented names bind as expected (behavior and defaults unchanged).
+- `upload-file-spring-boot-starter` metadata binding: `UploadFileProperties` used flat fields, so the
+  documented dotted property names (`merge.fsync`, `cleanup.enabled`, `cleanup.interval`,
+  `jdbc.table-name`, `redis.key-prefix`, ...) were silently ignored by Spring Boot's
+  `@ConfigurationProperties`. The properties are now grouped into nested `merge` / `cleanup` /
+  `async-merge` / `jdbc` / `redis` classes, so the documented names bind as expected (behavior and
+  defaults unchanged).
 
-- Planned: Spring Boot 3.x (`jakarta.servlet`) adapter.
+### Compatibility
+
+- All new features are off by default; `security.enabled`, `quota.max-bytes` and
+  `cleanup.use-redis-lock` default to off, `observability.log-stats` only logs when a pass actually
+  runs
+- `UploadTask` gains `schemaVersion` defaulting to `1`; rc.2 JSON remains readable and rollback-safe
+- Access-control is purely additive (default `PermitAll`), so existing callers are unaffected
+- Redis integration tests are skipped when Docker is unavailable
 
 ## [1.0.0-rc.2] - 2026-08-26
 

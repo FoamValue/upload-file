@@ -5,6 +5,22 @@
 默认 Servlet 映射：`/upload`、`/download`（Spring Boot 下可通过 `upload-file.upload-url` / `upload-file.download-url` 修改）。
 所有响应均为 UTF-8。
 
+## 0. 访问控制（rc.3）
+
+启用访问控制后（`security.enabled=true` 且配置了 `security.token`），所有接口都要求携带令牌：
+通过 `security.header-name` 指定的请求头（默认 `X-Access-Token`）或 `token` 查询参数传递。
+令牌缺失或错误时返回 `401`。未启用（默认）时无需令牌。
+
+通用错误状态码（除各接口自身的错误外）：
+
+| 状态码 | 含义 |
+| --- | --- |
+| `400` | 参数非法，或文件超过 `max-file-size` / `chunk.max-size` |
+| `401` | 访问被拒（启用访问控制，令牌缺失/错误） |
+| `404` | 文件不存在 |
+| `416` | `Range` 不可满足 |
+| `507` | 超过全局容量配额 `quota.max-bytes`（`Insufficient Storage`） |
+
 ## 1. 上传分片
 
 ```
@@ -45,7 +61,8 @@ multipart 字段：
 
 错误（`400`）：参数非法、MD5 不一致、任务已合并、分片元数据与首片不一致
 （`chunkTotal` / `chunkSize` / `fileSize` / `fileName`）、分片超过
-`max-chunk-size` / `chunk.max-size`。
+`max-chunk-size` / `chunk.max-size`，或整个文件超过 `max-file-size`。
+接受该文件将超过 `quota.max-bytes` 时返回 `507`；启用访问控制且令牌缺失/错误时返回 `401`。
 
 ## 2. 查询上传进度
 
@@ -76,7 +93,8 @@ POST /upload?action=merge&identifier=<identifier>
 }
 ```
 
-错误（`400`）：任务不存在、分片不完整、合并后文件大小与 `fileSize` 不一致。
+错误（`400`）：任务不存在、分片不完整、合并后文件大小与 `fileSize` 不一致，或文件超过 `max-file-size`。
+合并将超过 `quota.max-bytes` 时返回 `507`。
 
 ## 3.1 提交异步合并
 

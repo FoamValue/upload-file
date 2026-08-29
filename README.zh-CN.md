@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.2`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.3`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.2` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.3` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -25,6 +25,12 @@
 - 断点下载：基于 HTTP `Range` 的断点续传下载（`206 Partial Content`）
 - 元数据持久化：进度可落盘 JSON，也可通过 `TaskStore` SPI 接入 JDBC / Redis
 - 多接入方式：纯 Servlet / Spring Boot 自动配置 / 直接调用核心 API
+- **访问控制**：可选共享令牌校验，作用于全部接口（`401`）；令牌可通过可配置请求头或 `token` 查询参数传递
+- **大小与配额**：单文件总大小上限与可选全局容量配额（`400` / `507 Insufficient Storage`）
+- **清理可观测**：每次清理输出结构化统计日志，并提供可查询的 `CleanupStats` 快照
+- **任务存储迁移**：`TaskStoreMigrator` 可在存储间迁移进行中任务（如 `FileTaskStore` → JDBC/Redis）
+- **元数据版本化**：`schemaVersion` 字段，保障元数据格式安全演进
+- **多实例协调**：可选 Redis 租约锁，保证同一时刻只有一个实例执行清理调度
 
 ## 模块说明
 
@@ -46,7 +52,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.2</version>
+    <version>1.0.0-rc.3</version>
 </dependency>
 ```
 
@@ -130,6 +136,14 @@ UploadResult result = service.merge(identifier);
 | `upload-file.redis.password` | *(空)* | Redis 密码；空 = 无认证 |
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key 前缀 |
 | `upload-file.redis.ttl-seconds` | `0` | Redis 记录 TTL；`0` = 不过期 |
+| `upload-file.security.enabled` | `false` | 是否启用访问控制（需配置令牌） |
+| `upload-file.security.token` | *(空)* | 共享访问令牌；空 = 不校验 |
+| `upload-file.security.header-name` | `X-Access-Token` | 令牌请求头名称（也接受 `token` 查询参数） |
+| `upload-file.max-file-size` | `-1` | 单文件总大小上限（字节）；`-1` 不限 |
+| `upload-file.quota.max-bytes` | `0` | 全局容量配额（字节）；`0` 关闭 |
+| `upload-file.cleanup.use-redis-lock` | `false` | 使用 Redis 租约锁，保证单实例执行清理 |
+| `upload-file.observability.log-stats` | `true` | 每次清理后输出结构化统计日志 |
+| `upload-file.migration.enabled` | `false` | 暴露 `TaskStoreMigrator` Bean（迁移从不自动执行） |
 
 上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
 
@@ -144,9 +158,18 @@ upload-file:
     enabled: true
     interval: 1h
     task-ttl: 24h
+    use-redis-lock: true
   async-merge:
     enabled: true
     thread-pool-size: 2
+  security:
+    enabled: true
+    token: change-me
+    header-name: X-Access-Token
+  quota:
+    max-bytes: 10737418240
+  observability:
+    log-stats: true
   jdbc:
     table-name: upload_task
   redis:
@@ -155,7 +178,15 @@ upload-file:
     key-prefix: upload:task:
 ```
 
-> 纯 Servlet 部署使用同名 init-param 配置（如 `chunk.max-size`、`cleanup.enabled`、`async-merge.enabled`）。
+> 纯 Servlet 部署使用同名 init-param 配置（如 `chunk.max-size`、`cleanup.enabled`、`async-merge.enabled`、
+> `security.token`、`max-file-size`、`quota.max-bytes`）。
+
+## 访问控制
+
+当 `upload-file.security.enabled=true` 且已配置令牌时，所有接口都要求提供令牌：通过 `security.header-name`
+指定的请求头（默认 `X-Access-Token`）或 `token` 查询参数传递。未携带有效令牌的请求返回 `401`。
+开启安全校验而未配置令牌会在启动时直接失败（fail-fast），避免误配置导致接口静默开放。
+安全关闭（默认）时行为与旧版本完全一致。
 
 ## HTTP API 概览
 
@@ -168,6 +199,9 @@ upload-file:
 | `GET /upload?action=mergeStatus&identifier=xxx` | 查询异步合并状态（`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`） |
 | `GET /download?identifier=xxx` | 完整下载（`200`） |
 | `GET /download?identifier=xxx` + `Range` 头 | 区间下载（`206` / `416`） |
+
+常见错误：`400` 参数非法 / 超过 `max-file-size`、`401` 访问被拒（启用访问控制时）、
+`404` 文件不存在、`507 Insufficient Storage` 超过 `quota.max-bytes`、`416` Range 不可满足。
 
 ## 构建与测试
 
@@ -186,7 +220,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.2.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.3.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
@@ -207,8 +241,11 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - 可选的分片 MD5 校验
 - 分片与元数据采用「临时文件 + 原子改名」写盘；合并同样原子化
 - `max-chunk-size` / `chunk.max-size` 上限拒绝超限分片（防磁盘耗尽）
+- `max-file-size` 单文件上限与可选 `quota.max-bytes` 全局配额，超限文件在落盘前即被拒绝
+- 可选共享令牌访问控制（`security.*`），常量时间比较；默认关闭
 - 分片元数据跨分片一致性校验，与首片不一致的后续分片被拒绝
 - 清理与上传/合并共享按 identifier 的分片锁，后台 GC 不会与实时数据竞争
+- 可选 Redis 清理租约锁，避免多实例重复执行清理
 
 ## 文档
 
@@ -216,6 +253,7 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
+- [V1.0.0-rc.3 任务开发计划（生产就绪加固）](docs/PLAN-V1.0.0-rc.3.zh-CN.md)
 
 ## 许可证
 

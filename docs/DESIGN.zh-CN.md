@@ -29,11 +29,15 @@ upload-file (父 POM / 聚合器)
 | --- | --- |
 | `TaskStore`（SPI） | 上传任务元数据读写。内置 `MemoryTaskStore`、`FileTaskStore`、`JdbcTaskStore`、`RedisTaskStore` |
 | `ChunkStorage`（SPI） | 分片物理存储。内置 `LocalFileChunkStorage` |
-| `ResumableUploadService` | 分片保存、进度记录、MD5 校验、分片合并与清理 |
+| `ResumableUploadService` | 分片保存、进度记录、MD5 校验、分片合并与清理、大小/配额限制 |
 | `ResumableDownloadService` | 定位合并文件，按 `Range` 区间读取 |
-| `StorageCleanupService` | 后台 TTL 过期任务清理与可选孤儿数据 GC |
+| `StorageCleanupService` | 后台 TTL 过期任务清理与可选孤儿数据 GC；暴露 `CleanupStats`；通过可选 `CleanupLock` 协调多实例调度 |
 | `IdentifierLock` | 按 identifier 分片的定长锁，上传与清理服务共享 |
-| `UploadServlet` / `DownloadServlet` | HTTP 接入，解析 multipart / Range |
+| `AccessControl`（SPI） | 入口访问校验（默认 `PermitAllAccessControl`，共享令牌用 `TokenAccessControl`） |
+| `CleanupLock`（SPI） | 分布式租约锁，保证同一时刻单实例清理（redis 模块提供 `RedisCleanupLock`） |
+| `TaskStoreMigrator` | 显式、幂等的 `TaskStore` 间元数据迁移 |
+| `CleanupStats` | 单次清理快照（条数、耗时、错误），用于可观测 |
+| `UploadServlet` / `DownloadServlet` | HTTP 接入，解析 multipart / Range，提取访问令牌 |
 | `UploadFileAutoConfiguration` | Spring Boot 自动装配并注册 Servlet |
 
 ## 存储目录布局
@@ -103,6 +107,15 @@ upload-file (父 POM / 聚合器)
   与之不一致时直接拒绝。
 - 重复上传同一分片是幂等的（已记录则直接跳过）。
 - 任务存储为内存实现时跳过孤儿数据 GC（重启后任务全失，否则磁盘上每个目录都会被当作孤儿）。
+- 任务元数据携带 `schemaVersion`（当前为 `1`）；旧记录缺字段时加载归一化为 `1`，迁移会跳过高于当前版本的记录。
+
+## 部署约束
+
+- 默认部署形态为**单实例 / 共享盘**。当 `metadata-store=jdbc|redis` 而分片仍在本地盘时，多实例仅限共享盘场景；
+  分片横向扩容需要对象存储后端（见路线图）。
+- 未启用访问控制（默认）时，鉴权须由网关/反向代理兜底。
+- 多实例运行清理调度时，开启 `cleanup.use-redis-lock` 保证同一时刻只有一个实例执行清理。
+- 迁移（`migration.enabled`）从不自动执行；需显式调用 `migrator.migrate(旧FileTaskStore)` 将记录迁入当前存储。
 
 ## 未来优化方向
 

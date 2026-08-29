@@ -30,11 +30,15 @@ upload-file (parent POM / aggregator)
 | --- | --- |
 | `TaskStore` (SPI) | Read/write upload-task metadata. Built-ins: `MemoryTaskStore`, `FileTaskStore`, `JdbcTaskStore`, `RedisTaskStore` |
 | `ChunkStorage` (SPI) | Physical chunk storage. Built-in: `LocalFileChunkStorage` |
-| `ResumableUploadService` | Chunk persistence, progress tracking, MD5 verification, merge & cleanup |
+| `ResumableUploadService` | Chunk persistence, progress tracking, MD5 verification, merge & cleanup, size/quota limits |
 | `ResumableDownloadService` | Locate the merged file and read a `Range` slice |
-| `StorageCleanupService` | Background TTL-based task expiry and opt-in orphan-data GC |
+| `StorageCleanupService` | Background TTL-based task expiry and opt-in orphan-data GC; exposes `CleanupStats`; coordinates multi-instance runs via an optional `CleanupLock` |
 | `IdentifierLock` | Fixed-size striped lock keyed by identifier, shared by upload and cleanup |
-| `UploadServlet` / `DownloadServlet` | HTTP integration; parse multipart / Range |
+| `AccessControl` (SPI) | Entry-point access checks (`PermitAllAccessControl` default, `TokenAccessControl` for shared tokens) |
+| `CleanupLock` (SPI) | Distributed lease lock so only one instance cleans at a time (`RedisCleanupLock` in the redis module) |
+| `TaskStoreMigrator` | Explicit, idempotent metadata migration between `TaskStore` implementations |
+| `CleanupStats` | Snapshot of a cleanup pass (counts, elapsed time, error) for observability |
+| `UploadServlet` / `DownloadServlet` | HTTP integration; parse multipart / Range, extract the access token |
 | `UploadFileAutoConfiguration` | Spring Boot auto-wiring and Servlet registration |
 
 ## Storage Layout
@@ -110,6 +114,19 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
 - Re-uploading the same chunk is idempotent (skipped once recorded).
 - Orphan-data GC is skipped when the task store is in-memory, since all tasks are lost on
   restart and every on-disk dir would otherwise look like an orphan.
+- Task metadata carries a `schemaVersion` (current = `1`); old records without the field are
+  normalized to `1` on load, and migration skips records newer than the current version.
+
+## Deployment Notes
+
+- The default topology is **single instance / shared disk**. When `metadata-store=jdbc|redis` while
+  chunks stay on local disks, multiple instances are supported only on a shared disk; horizontal
+  scaling of chunks requires an object-storage backend (see the roadmap).
+- When access control is disabled (default), a gateway/reverse proxy must enforce authentication.
+- For multiple instances running the cleanup scheduler, enable `cleanup.use-redis-lock` so only one
+  instance cleans at a time.
+- Migration (`migration.enabled`) never runs automatically; call
+  `migrator.migrate(oldFileTaskStore)` explicitly to copy records into the active store.
 
 ## Future Optimization Directions
 

@@ -9,6 +9,49 @@
 
 ## [Unreleased]
 
+### 计划
+
+- Spring Boot 3.x（`jakarta.servlet`）适配。
+
+## [1.0.0-rc.3] - 2026-08-29
+
+**Pre-release。** `1.0.0` GA 前的生产就绪加固。所有新特性默认关闭，从 `rc.2` 升级保持既有行为逐字节不变
+（由新增 compat 回归套件保证）。
+
+### 新增
+
+- **访问控制（T6）**：`AccessControl` SPI，内置 `PermitAllAccessControl`（默认，放行）与
+  `TokenAccessControl`（常量时间共享令牌比较）；上传/进度/合并/异步合并/下载全部门禁接入校验，
+  令牌缺失或错误返回 `401`
+- **文件大小与容量配额（T8）**：`max-file-size` 单文件上限（首片与 merge 前双重校验）与可选
+  `quota.max-bytes` 全局容量配额（近似估算，超限返回 `507 Insufficient Storage`）
+- **清理可观测（T9）**：`CleanupStats` 快照（`getLastStats()`）与统计监听器；接入层每次清理输出一行
+  结构化日志（`observability.log-stats`，默认 `true`）
+- **任务存储迁移（T10）**：`TaskStoreMigrator` 可在存储间迁移进行中任务（如 `FileTaskStore` →
+  `JdbcTaskStore` / `RedisTaskStore`）；显式且幂等，从不自动执行（`migration.enabled` 暴露 Bean）
+- **元数据格式版本（T11）**：`UploadTask.schemaVersion`（当前 `1`）；缺字段的旧记录加载时归一化为 `1`
+- **多实例清理锁（T7）**：`CleanupLock` SPI，redis 模块提供 `RedisCleanupLock`（`SET NX EX` 租约）；
+  未获取租约时跳过本轮（`cleanup.use-redis-lock`）
+- 新增配置项：`security.enabled`、`security.token`、`security.header-name`、`max-file-size`、
+  `quota.max-bytes`、`cleanup.use-redis-lock`、`observability.log-stats`、`migration.enabled`；
+  Servlet 场景提供同名 init-param
+- **compat 回归套件（T12）**：以 rc.2 元数据 JSON + 目录布局启动验证默认配置行为；覆盖两处高危组合
+  （C1：TTL 静默删任务；C2：内存存储 + 孤儿清理）
+
+### 变更
+
+- `ResumableUploadService` / `ResumableDownloadService` 新增携带令牌的方法重载
+  （`uploadChunk(req, token, in)`、`merge(id, token)`、`resolveFile(id, token)` 等）；旧签名委托
+  空令牌调用，行为不变
+- 启用 `security.enabled` 而未配置令牌时启动即失败（Servlet 上下文与 Spring Boot 均如此），
+  避免误配置导致接口静默开放
+
+### 安全
+
+- 全部接口可选共享令牌访问控制（常量时间比较，默认关闭）
+- `max-file-size` 上限在文件落盘前即拒绝超限文件
+- `quota.max-bytes` 防护多文件场景下的磁盘耗尽
+
 ### 修复
 
 - `upload-file-spring-boot-starter` 元数据绑定：`UploadFileProperties` 原先为扁平字段，文档中的点号属性名
@@ -17,7 +60,13 @@
   `merge` / `cleanup` / `async-merge` / `jdbc` / `redis` 配置类，文档化名称按预期生效
   （行为与默认值不变）。
 
-- 计划：Spring Boot 3.x（`jakarta.servlet`）适配。
+### 兼容性
+
+- 所有新特性默认关闭：`security.enabled`、`quota.max-bytes`、`cleanup.use-redis-lock` 默认关闭，
+  `observability.log-stats` 仅在清理实际执行时输出日志
+- `UploadTask` 新增 `schemaVersion` 默认按 `1` 处理；rc.2 JSON 依旧可读、回滚安全
+- 访问控制为纯新增（默认 `PermitAll`），既有调用方不受影响
+- Redis 集成测试在无 Docker 时自动跳过
 
 ## [1.0.0-rc.2] - 2026-08-26
 

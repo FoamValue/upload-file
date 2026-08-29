@@ -15,3 +15,21 @@ upload-file:
   verify-checksum: true
   upload-url: /upload
   download-url: /download
+
+  # --- rc.3 production-hardening examples (commented out, keep defaults to stay open) ---
+  # Optional access control: enable + a token, then every endpoint requires the token
+  # in the "X-Access-Token" header (or a "token" query param).
+  #security:
+  #  enabled: true
+  #  token: change-me
+  #  header-name: X-Access-Token
+  # Per-file total size limit (bytes) and optional global capacity quota (bytes).
+  #max-file-size: 1073741824
+  #quota:
+  #  max-bytes: 10737418240
+  # Cleanup observability / multi-instance scheduling lock.
+  #observability:
+  #  log-stats: true
+  #cleanup:
+  #  enabled: true
+  #  use-redis-lock: true

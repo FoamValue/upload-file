@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.2` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.3` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.2` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.3` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -25,6 +25,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Resumable download** – HTTP `Range` based resumable download (`206 Partial Content`)
 - **Metadata persistence** – upload progress can be persisted as JSON, or backed by JDBC / Redis via the `TaskStore` SPI
 - **Multiple integrations** – plain Servlet, Spring Boot auto-configuration, or direct core API
+- **Access control** – optional shared-token check on every endpoint (`401`); all endpoints accept the token in a configurable header or a `token` query param
+- **Size & quota limits** – per-file total size cap and an optional global capacity quota (`400` / `507 Insufficient Storage`)
+- **Cleanup observability** – structured stats log and a queryable `CleanupStats` snapshot per cleanup pass
+- **Task-store migration** – `TaskStoreMigrator` copies in-flight tasks between stores (e.g. `FileTaskStore` → JDBC/Redis)
+- **Metadata versioning** – `schemaVersion` field so the metadata format can evolve safely
+- **Multi-instance coordination** – optional Redis lease lock so only one instance runs the cleanup scheduler
 
 ## Modules
 
@@ -46,7 +52,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.2</version>
+    <version>1.0.0-rc.3</version>
 </dependency>
 ```
 
@@ -129,6 +135,14 @@ UploadResult result = service.merge(identifier);
 | `upload-file.redis.password` | *(empty)* | Redis password; empty = no auth |
 | `upload-file.redis.key-prefix` | `upload:task:` | Redis key prefix |
 | `upload-file.redis.ttl-seconds` | `0` | Redis record TTL; `0` = none |
+| `upload-file.security.enabled` | `false` | Enable access-control checks (requires a token) |
+| `upload-file.security.token` | *(empty)* | Shared access token; empty = no checks |
+| `upload-file.security.header-name` | `X-Access-Token` | Token header name (a `token` query param is also accepted) |
+| `upload-file.max-file-size` | `-1` | Per-file total size limit in bytes; `-1` = unlimited |
+| `upload-file.quota.max-bytes` | `0` | Global capacity quota in bytes; `0` = off |
+| `upload-file.cleanup.use-redis-lock` | `false` | Use a Redis lease lock so only one instance runs cleanup |
+| `upload-file.observability.log-stats` | `true` | Log a structured cleanup-stats line after each pass |
+| `upload-file.migration.enabled` | `false` | Expose the `TaskStoreMigrator` bean (migration never runs automatically) |
 
 The dotted names above map to nested groups, so the same settings can be written in a grouped
 YAML form:
@@ -144,9 +158,18 @@ upload-file:
     enabled: true
     interval: 1h
     task-ttl: 24h
+    use-redis-lock: true
   async-merge:
     enabled: true
     thread-pool-size: 2
+  security:
+    enabled: true
+    token: change-me
+    header-name: X-Access-Token
+  quota:
+    max-bytes: 10737418240
+  observability:
+    log-stats: true
   jdbc:
     table-name: upload_task
   redis:
@@ -156,7 +179,15 @@ upload-file:
 ```
 
 > Pure Servlet deployments configure the same options as init-params (e.g. `chunk.max-size`,
-> `cleanup.enabled`, `async-merge.enabled`).
+> `cleanup.enabled`, `async-merge.enabled`, `security.token`, `max-file-size`, `quota.max-bytes`).
+
+## Access Control
+
+When `upload-file.security.enabled=true` and a token is configured, every endpoint requires the
+token in the header named by `security.header-name` (default `X-Access-Token`) or in a `token`
+query parameter. Requests without a valid token are rejected with `401`. Enabling security
+without a token fails fast at startup so a misconfiguration never silently opens the endpoints.
+When security is off (the default), behavior is unchanged.
 
 ## HTTP API Overview
 
@@ -169,6 +200,10 @@ upload-file:
 | `GET /upload?action=mergeStatus&identifier=xxx` | Query the async merge status (`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`) |
 | `GET /download?identifier=xxx` | Full download (`200`) |
 | `GET /download?identifier=xxx` + `Range` header | Range download (`206` / `416`) |
+
+Common errors: `400` invalid request / exceeds `max-file-size`, `401` access denied (when access
+control is enabled), `404` file not found, `507 Insufficient Storage` exceeds `quota.max-bytes`,
+`416` unsatisfiable range.
 
 ## Build & Test
 
@@ -187,7 +222,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.2.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.3.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
@@ -207,8 +242,11 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - Optional per-chunk MD5 verification
 - Chunks and metadata are written atomically (temp file + rename); merge is atomic as well
 - A `max-chunk-size` / `chunk.max-size` limit rejects oversized chunks (disk-exhaustion protection)
+- A `max-file-size` per-file limit and an optional `quota.max-bytes` global quota reject oversized files before they are persisted
+- Optional shared-token access control on every endpoint (`security.*`), compared in constant time; off by default
 - Chunk metadata is checked for cross-chunk consistency; later chunks that disagree with the first are rejected
 - Cleanup and upload/merge share a per-identifier lock, so background GC never races live data
+- An optional Redis cleanup lease lock keeps multiple instances from running duplicate cleanup
 
 ## Docs
 
@@ -216,6 +254,7 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
 - [Changelog](CHANGELOG.md)
+- [V1.0.0-rc.3 Task Plan (production hardening)](docs/PLAN-V1.0.0-rc.3.md)
 
 ## License
 

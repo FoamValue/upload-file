@@ -5,6 +5,23 @@
 Default Servlet mappings: `/upload`, `/download` (under Spring Boot they can be changed via
 `upload-file.upload-url` / `upload-file.download-url`). All responses are UTF-8.
 
+## 0. Access Control (rc.3)
+
+When access control is enabled (`security.enabled=true` with a configured `security.token`), every
+endpoint requires the token in the header named by `security.header-name` (default `X-Access-Token`)
+or in a `token` query parameter. Missing or wrong tokens return `401`. When disabled (default), no
+token is needed.
+
+Common error statuses (in addition to the endpoint-specific ones below):
+
+| Status | Meaning |
+| --- | --- |
+| `400` | invalid parameters, or the file exceeds `max-file-size` / `chunk.max-size` |
+| `401` | access denied (access control enabled, missing/wrong token) |
+| `404` | file not found |
+| `416` | unsatisfiable `Range` |
+| `507` | exceeds the global capacity quota `quota.max-bytes` (`Insufficient Storage`) |
+
 ## 1. Upload a Chunk
 
 ```
@@ -45,7 +62,9 @@ Notes: re-uploading the same chunk is skipped (idempotent); the current progress
 
 Errors (`400`): invalid parameters, MD5 mismatch, task already merged, chunk metadata inconsistent
 with the first chunk (`chunkTotal` / `chunkSize` / `fileSize` / `fileName`), chunk exceeding
-`max-chunk-size` / `chunk.max-size`.
+`max-chunk-size` / `chunk.max-size`, or the whole file exceeding `max-file-size`.
+`507` when accepting the file would exceed `quota.max-bytes`; `401` when access control is enabled
+and the token is missing/wrong.
 
 ## 2. Query Upload Progress
 
@@ -77,7 +96,8 @@ Response `200`:
 }
 ```
 
-Errors (`400`): task not found, chunks incomplete, merged size does not match `fileSize`.
+Errors (`400`): task not found, chunks incomplete, merged size does not match `fileSize`, or the file
+exceeds `max-file-size`. `507` when the merge would exceed `quota.max-bytes`.
 
 ## 3.1 Submit an Async Merge
 
