@@ -30,6 +30,8 @@ public interface AccessControl {
     String ACTION_MERGE_STATUS = "mergeStatus";
     /** Download the merged file. */
     String ACTION_DOWNLOAD = "download";
+    /** Cancel an upload task and reclaim its data. */
+    String ACTION_CANCEL = "cancel";
 
     /**
      * Checks whether the operation is allowed.

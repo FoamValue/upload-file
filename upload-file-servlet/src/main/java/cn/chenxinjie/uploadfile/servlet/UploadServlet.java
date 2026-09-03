@@ -8,6 +8,8 @@ package cn.chenxinjie.uploadfile.servlet;
 
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
+import cn.chenxinjie.uploadfile.core.exception.UploadErrorCode;
+import cn.chenxinjie.uploadfile.core.exception.UploadMergeConflictException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
@@ -34,9 +36,14 @@ import java.io.InputStream;
  *   <li>{@code POST /upload}: upload one chunk (multipart, carrying identifier/fileName/fileSize/chunkSize/chunkTotal/chunkIndex/chunkMd5 plus the chunk file); returns {@link UploadProgress} JSON</li>
  *   <li>{@code POST /upload?action=merge&identifier=xxx}: merge chunks; returns {@link UploadResult} JSON</li>
  *   <li>{@code POST /upload?action=mergeAsync&identifier=xxx}: submit the merge asynchronously; returns {@link MergeStatus} JSON with HTTP 202</li>
+ *   <li>{@code POST /upload?action=cancel&identifier=xxx}: cancel the task and reclaim its chunks/merged artifact; returns {@link UploadResult} JSON</li>
  *   <li>{@code GET /upload?action=mergeStatus&identifier=xxx}: query the async merge status; returns {@link MergeStatus} JSON</li>
  *   <li>{@code GET /upload?action=progress&identifier=xxx}: query progress; returns {@link UploadProgress} JSON</li>
  * </ul>
+ *
+ * <p>Failures are reported with the status code carried by the {@link cn.chenxinjie.uploadfile.core.exception.UploadErrorCode}
+ * exceptions ({@code 400} validation/checksum, {@code 401} access denied, {@code 404} task not found,
+ * {@code 409} merge-state conflict, {@code 507} quota) and a JSON body.</p>
  *
  * <p>The service can be injected via a setter, or the default implementation can be used by
  * providing {@code storage-dir} / {@code metadata-dir} init-params in web.xml or
@@ -103,12 +110,14 @@ public class UploadServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         // action=merge triggers the merge endpoint; action=mergeAsync submits it asynchronously;
-        // anything else is treated as a chunk upload.
+        // action=cancel removes the task and its data; anything else is treated as a chunk upload.
         String action = req.getParameter("action");
         if ("merge".equals(action)) {
             doMerge(req, resp);
         } else if ("mergeAsync".equals(action)) {
             doMergeAsync(req, resp);
+        } else if ("cancel".equals(action)) {
+            doCancel(req, resp);
         } else {
             doChunkUpload(req, resp);
         }
@@ -146,7 +155,7 @@ public class UploadServlet extends HttpServlet {
         } catch (QuotaExceededException e) {
             writeJson(resp, 507, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
+            writeJson(resp, statusOf(e), gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
         }
     }
 
@@ -163,7 +172,46 @@ public class UploadServlet extends HttpServlet {
             // Log the details server-side but return a generic message so internal paths
             // and implementation details are never exposed to the client.
             LOG.log(java.util.logging.Level.WARNING, "Merge failed for identifier: " + identifier, e);
-            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Merge failed")));
+            writeJson(resp, statusOf(e), gson.toJson(UploadResult.error(identifier, "Merge failed")));
+        }
+    }
+
+    /**
+     * Maps a core failure to a stable HTTP status: exceptions implementing
+     * {@link UploadErrorCode} report their own code; everything else is a client error
+     * ({@code 400}) on these upload endpoints.
+     */
+    private static int statusOf(Exception e) {
+        if (e instanceof UploadErrorCode) {
+            return ((UploadErrorCode) e).getHttpStatusCode();
+        }
+        return 400;
+    }
+
+    private void doCancel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        String identifier = param(req, "identifier");
+        if (identifier == null || identifier.trim().isEmpty()) {
+            writeJson(resp, 400, gson.toJson(UploadResult.error(null, "identifier is required")));
+            return;
+        }
+        try {
+            boolean removed = uploadService.cancelUpload(identifier, token(req));
+            if (!removed) {
+                writeJson(resp, 404, gson.toJson(UploadResult.error(identifier, "Upload task not found")));
+                return;
+            }
+            UploadResult result = new UploadResult();
+            result.setSuccess(true);
+            result.setMessage("Upload task cancelled");
+            result.setIdentifier(identifier);
+            writeJson(resp, 200, gson.toJson(result));
+        } catch (AccessDeniedException e) {
+            writeJson(resp, 401, gson.toJson(UploadResult.error(identifier, "Access denied")));
+        } catch (UploadMergeConflictException e) {
+            // Generic message: an async merge is pending/running; internal state is not exposed.
+            writeJson(resp, 409, gson.toJson(UploadResult.error(identifier, "Async merge in progress")));
+        } catch (Exception e) {
+            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Cancel failed")));
         }
     }
 
@@ -175,7 +223,7 @@ public class UploadServlet extends HttpServlet {
         } catch (AccessDeniedException e) {
             writeJson(resp, 401, gson.toJson(MergeStatus.none(identifier)));
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
+            writeJson(resp, statusOf(e), gson.toJson(MergeStatus.none(identifier)));
         }
     }
 

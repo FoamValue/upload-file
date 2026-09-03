@@ -401,6 +401,110 @@ public class UploadServletTest {
         assertFalse(context.getUploadService().isChunkUploaded("quota1", 0));
     }
 
+    @Test
+    public void cancelUnknownIdentifierReturns404() throws Exception {
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", "no-such-task");
+        MockHttpServletResponse cancelResponse = new MockHttpServletResponse();
+
+        servlet.doPost(cancelRequest, cancelResponse);
+
+        assertEquals(404, cancelResponse.getStatus());
+    }
+
+    @Test
+    public void cancelRemovesTaskChunksAndMergedFile() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        servlet.doPost(request, new MockHttpServletResponse());
+
+        MockHttpServletRequest mergeRequest = new MockHttpServletRequest();
+        mergeRequest.setParameter("action", "merge");
+        mergeRequest.setParameter("identifier", IDENTIFIER);
+        servlet.doPost(mergeRequest, new MockHttpServletResponse());
+
+        java.io.File mergedFile = new java.io.File(folder.getRoot(), "files/" + IDENTIFIER);
+        assertTrue(mergedFile.isDirectory());
+
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse cancelResponse = new MockHttpServletResponse();
+        servlet.doPost(cancelRequest, cancelResponse);
+
+        assertEquals(200, cancelResponse.getStatus());
+        UploadResult result = new Gson().fromJson(cancelResponse.getContentAsString(), UploadResult.class);
+        assertTrue(result.isSuccess());
+        assertFalse(uploadService.getTaskStore().get(IDENTIFIER).isPresent());
+        assertFalse(mergedFile.exists());
+    }
+
+    @Test
+    public void mergeOnMissingTaskReturns404() throws Exception {
+        MockHttpServletRequest mergeRequest = new MockHttpServletRequest();
+        mergeRequest.setParameter("action", "merge");
+        mergeRequest.setParameter("identifier", "no-such-task");
+        MockHttpServletResponse mergeResponse = new MockHttpServletResponse();
+
+        servlet.doPost(mergeRequest, mergeResponse);
+
+        assertEquals(404, mergeResponse.getStatus());
+    }
+
+    @Test
+    public void mergeWithoutAllChunksReturns409() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.setParameter("chunkTotal", "4");
+        request.setParameter("chunkIndex", "0");
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        servlet.doPost(request, new MockHttpServletResponse());
+
+        MockHttpServletRequest mergeRequest = new MockHttpServletRequest();
+        mergeRequest.setParameter("action", "merge");
+        mergeRequest.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse mergeResponse = new MockHttpServletResponse();
+
+        servlet.doPost(mergeRequest, mergeResponse);
+
+        assertEquals(409, mergeResponse.getStatus());
+    }
+
+    @Test
+    public void cancelWhileAsyncMergeRunningReturns409() throws Exception {
+        MockHttpServletRequest request = multipartRequest();
+        request.addPart(new MockPart("file", "demo.bin", "hello".getBytes(StandardCharsets.UTF_8)));
+        servlet.doPost(request, new MockHttpServletResponse());
+
+        cn.chenxinjie.uploadfile.core.model.UploadTask task =
+                uploadService.getTaskStore().get(IDENTIFIER).get();
+        task.setMergeState(cn.chenxinjie.uploadfile.core.model.UploadTask.MERGE_STATE_RUNNING);
+        uploadService.getTaskStore().save(task);
+
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse cancelResponse = new MockHttpServletResponse();
+
+        servlet.doPost(cancelRequest, cancelResponse);
+
+        assertEquals(409, cancelResponse.getStatus());
+        assertTrue(uploadService.getTaskStore().get(IDENTIFIER).isPresent());    }
+
+    @Test
+    public void cancelRejectsWithoutTokenWhenSecurityEnabled() throws Exception {
+        UploadServlet secured = securedServlet("srv-secret");
+
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", "sec-cancel");
+        MockHttpServletResponse cancelResponse = new MockHttpServletResponse();
+
+        secured.doPost(cancelRequest, cancelResponse);
+
+        assertEquals(401, cancelResponse.getStatus());
+    }
+
     private UploadServlet securedServlet(String token) {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;

@@ -8,6 +8,9 @@ package cn.chenxinjie.uploadfile.core.service;
 
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
+import cn.chenxinjie.uploadfile.core.exception.UploadMergeConflictException;
+import cn.chenxinjie.uploadfile.core.exception.UploadTaskNotFoundException;
+import cn.chenxinjie.uploadfile.core.exception.UploadValidationException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
@@ -26,15 +29,19 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.NoSuchElementException;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
+import java.util.stream.Stream;
 
 /**
  * Core resumable-upload service.
@@ -184,10 +191,10 @@ public class ResumableUploadService {
         int chunkIndex = request.getChunkIndex();
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
-            throw new IllegalArgumentException("chunkTotal must be greater than 0");
+            throw new UploadValidationException("chunkTotal must be greater than 0");
         }
         if (chunkIndex < 0 || chunkIndex >= chunkTotal) {
-            throw new IllegalArgumentException("chunkIndex out of range: " + chunkIndex);
+            throw new UploadValidationException("chunkIndex out of range: " + chunkIndex);
         }
         long chunkSize = request.getChunkSize() > 0 ? request.getChunkSize() : DEFAULT_CHUNK_SIZE;
 
@@ -197,7 +204,7 @@ public class ResumableUploadService {
                 // First chunk of this identifier: create the task record before storing any chunk.
                 StringUtil.requireSafeFileName(request.getFileName());
                 if (maxFileBytes > 0 && request.getFileSize() > maxFileBytes) {
-                    throw new IllegalArgumentException("File size " + request.getFileSize()
+                    throw new UploadValidationException("File size " + request.getFileSize()
                             + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
                 }
                 if (maxTotalBytes > 0 && request.getFileSize() > 0) {
@@ -212,7 +219,7 @@ public class ResumableUploadService {
                 validateConsistentMetadata(request, chunkSize, task);
             }
             if (task.isMerged()) {
-                throw new IllegalStateException("Task already merged, cannot upload chunks: " + identifier);
+                throw new UploadMergeConflictException("Task already merged, cannot upload chunks: " + identifier);
             }
             if (asyncExecutor != null) {
                 // When async merge is enabled, reject new chunks while a merge is in flight
@@ -221,7 +228,7 @@ public class ResumableUploadService {
                 if (UploadTask.MERGE_STATE_PENDING.equals(state)
                         || UploadTask.MERGE_STATE_RUNNING.equals(state)
                         || UploadTask.MERGE_STATE_SUCCEEDED.equals(state)) {
-                    throw new IllegalStateException("Async merge is running or finished, cannot upload chunks: " + identifier);
+                    throw new UploadMergeConflictException("Async merge is running or finished, cannot upload chunks: " + identifier);
                 }
             }
             if (!task.getUploadedChunks().contains(chunkIndex)) {
@@ -232,7 +239,7 @@ public class ResumableUploadService {
                     File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
                     if (saved.isFile() && saved.length() > maxChunkBytes) {
                         chunkStorage.deleteChunk(identifier, chunkIndex);
-                        throw new IllegalArgumentException("Chunk " + chunkIndex
+                        throw new UploadValidationException("Chunk " + chunkIndex
                                 + " exceeds the maximum allowed size of " + maxChunkBytes + " bytes");
                     }
                 }
@@ -259,20 +266,20 @@ public class ResumableUploadService {
     private static void validateConsistentMetadata(ChunkUploadRequest request, long chunkSize, UploadTask task) {
         String identifier = task.getIdentifier();
         if (request.getChunkTotal() != task.getChunkTotal()) {
-            throw new IllegalArgumentException("chunkTotal mismatch: expected "
+            throw new UploadValidationException("chunkTotal mismatch: expected "
                     + task.getChunkTotal() + ", got " + request.getChunkTotal() + " (" + identifier + ")");
         }
         if (task.getChunkSize() > 0 && chunkSize != task.getChunkSize()) {
-            throw new IllegalArgumentException("chunkSize mismatch: expected "
+            throw new UploadValidationException("chunkSize mismatch: expected "
                     + task.getChunkSize() + ", got " + chunkSize + " (" + identifier + ")");
         }
         if (request.getFileSize() > 0 && task.getFileSize() > 0 && request.getFileSize() != task.getFileSize()) {
-            throw new IllegalArgumentException("fileSize mismatch: expected "
+            throw new UploadValidationException("fileSize mismatch: expected "
                     + task.getFileSize() + ", got " + request.getFileSize() + " (" + identifier + ")");
         }
         if (StringUtil.isNotBlank(request.getFileName())
                 && !request.getFileName().equals(task.getFileName())) {
-            throw new IllegalArgumentException("fileName mismatch: expected "
+            throw new UploadValidationException("fileName mismatch: expected "
                     + task.getFileName() + ", got " + request.getFileName() + " (" + identifier + ")");
         }
     }
@@ -304,6 +311,20 @@ public class ResumableUploadService {
     }
 
     /**
+     * Returns the current task metadata for the identifier, or empty when no task exists.
+     *
+     * <p>This is the stable read interface for the integration layer's <b>confirm phase</b>: after a
+     * merge succeeds, read the task (or the {@code UploadResult}/{@code MergeStatus} returned by the
+     * merge call) and use {@link UploadTask#getFinalPath()} to locate the merged artifact, instead of
+     * guessing the directory layout. The returned object is a live snapshot of the store record;
+     * treat it as read-only.</p>
+     */
+    public Optional<UploadTask> getTask(String identifier) {
+        StringUtil.requireSafeIdentifier(identifier);
+        return taskStore.get(identifier);
+    }
+
+    /**
      * Merges all uploaded chunks into the complete file and cleans up the chunks.
      *
      * <p>The merged file is written to {@code <mergedFileDir>/<identifier>/<fileName>}.
@@ -327,13 +348,13 @@ public class ResumableUploadService {
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
-                throw new NoSuchElementException("Upload task not found: " + identifier);
+                throw new UploadTaskNotFoundException("Upload task not found: " + identifier);
             }
             if (task.isMerged()) {
                 return UploadResult.merged(task, task.getFinalPath(), task.getFinalFileSize());
             }
             if (maxFileBytes > 0 && task.getFileSize() > maxFileBytes) {
-                throw new IllegalArgumentException("File size " + task.getFileSize()
+                throw new UploadValidationException("File size " + task.getFileSize()
                         + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
             }
             if (maxTotalBytes > 0) {
@@ -347,7 +368,7 @@ public class ResumableUploadService {
                 }
             }
             if (missing > 0) {
-                throw new IllegalStateException("Missing " + missing + " chunk(s) not yet uploaded: " + identifier);
+                throw new UploadMergeConflictException("Missing " + missing + " chunk(s) not yet uploaded: " + identifier);
             }
             StringUtil.requireSafeFileName(task.getFileName());
             Path dir = mergedFileDir.toPath().resolve(identifier);
@@ -417,7 +438,7 @@ public class ResumableUploadService {
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
-                throw new NoSuchElementException("Upload task not found: " + identifier);
+                throw new UploadTaskNotFoundException("Upload task not found: " + identifier);
             }
             if (task.isMerged()) {
                 return MergeStatus.from(task);
@@ -458,6 +479,66 @@ public class ResumableUploadService {
         accessControl.check(identifier, AccessControl.ACTION_MERGE_STATUS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? MergeStatus.none(identifier) : MergeStatus.from(task);
+    }
+
+    /**
+     * Cancels an upload task and reclaims all of its data: the task record, the uploaded chunks,
+     * and any merged (but not yet claimed by the integration) artifact under the identifier.
+     * After cancellation the identifier can be reused for a brand-new upload.
+     *
+     * <p>This is the explicit alternative to waiting for the task TTL and the cleanup scheduler
+     * ({@link StorageCleanupService}), for use when an upload is abandoned or the merged artifact
+     * has been moved into business storage.</p>
+     *
+     * @return {@code true} when a task existed and was removed, {@code false} when there was nothing to cancel
+     * @throws UploadMergeConflictException when the task has an async merge pending or running;
+     *         retry after it settles
+     */
+    public boolean cancelUpload(String identifier) {
+        return cancelUpload(identifier, null);
+    }
+
+    /**
+     * Cancels an upload task with an access token (see {@link AccessControl}).
+     */
+    public boolean cancelUpload(String identifier, String token) {
+        StringUtil.requireSafeIdentifier(identifier);
+        accessControl.check(identifier, AccessControl.ACTION_CANCEL, token);
+        synchronized (lockFor(identifier)) {
+            UploadTask task = taskStore.get(identifier).orElse(null);
+            if (task == null) {
+                return false;
+            }
+            String state = task.mergeState();
+            if (UploadTask.MERGE_STATE_PENDING.equals(state) || UploadTask.MERGE_STATE_RUNNING.equals(state)) {
+                throw new UploadMergeConflictException(
+                        "Async merge is " + state + ", cannot cancel the task: " + identifier);
+            }
+            // Reclaim the on-disk data first (chunks, then the merged artifact dir), then the record;
+            // a crash in between leaves only orphan data, which the cleanup service reclaims.
+            chunkStorage.deleteChunks(identifier);
+            deleteDirectoryQuietly(mergedFileDir.toPath().resolve(identifier));
+            taskStore.remove(identifier);
+            return true;
+        }
+    }
+
+    private static void deleteDirectoryQuietly(Path dir) {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder())
+                    .forEach(path -> {
+                        try {
+                            Files.deleteIfExists(path);
+                        } catch (IOException e) {
+                            throw new UncheckedIOException(e);
+                        }
+                    });
+        } catch (IOException e) {
+            throw new UncheckedIOException("Failed to delete directory: " + dir, e);
+        }
     }
 
     private void doAsyncMerge(String identifier) {
