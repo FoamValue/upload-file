@@ -6,6 +6,7 @@
 
 - The P0 items (5) are **implemented in `V1.0.0-rc.2`** (see the [V1.0.0 Task Development Plan](PLAN-V1.0.0-rc.2.md) for the original breakdown).
 - **`V1.0.0-rc.3` production-readiness hardening** (access control / multi-instance constraints / size-quota / observability / migration / compat regression / 1.0.0 SOW) is planned — see [V1.0.0-rc.3 Task Plan](PLAN-V1.0.0-rc.3.md).
+- **`V1.0.0-rc.4`** (feedback-driven) is done: stable per-identifier read (`getTask`) + explicit cancellation (`cancelUpload` / `action=cancel`), stable `UploadErrorCode` HTTP semantics, and cleanup / manual-wiring documentation — see the [Changelog](../CHANGELOG.md) and the driving feedback in `doc/user-feedback/`.
 - P1/P2 items are pending confirmation.
 
 ## Complete Optimization List

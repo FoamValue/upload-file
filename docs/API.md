@@ -12,13 +12,15 @@ endpoint requires the token in the header named by `security.header-name` (defau
 or in a `token` query parameter. Missing or wrong tokens return `401`. When disabled (default), no
 token is needed.
 
-Common error statuses (in addition to the endpoint-specific ones below):
+Common error statuses (in addition to the endpoint-specific ones below). Since rc.4 these map to the
+`UploadErrorCode` carried by the core exceptions, so HTTP-layer integrations report identical statuses:
 
 | Status | Meaning |
 | --- | --- |
-| `400` | invalid parameters, or the file exceeds `max-file-size` / `chunk.max-size` |
+| `400` | invalid parameters, metadata disagreement, MD5 mismatch, or exceeding `max-file-size` / `chunk.max-size` |
 | `401` | access denied (access control enabled, missing/wrong token) |
-| `404` | file not found |
+| `404` | task not found |
+| `409` | merge-state conflict (uploading to an already-merged/in-flight task, merge with missing chunks, cancelling during an async merge) |
 | `416` | unsatisfiable `Range` |
 | `507` | exceeds the global capacity quota `quota.max-bytes` (`Insufficient Storage`) |
 
@@ -60,9 +62,10 @@ Response `200`:
 
 Notes: re-uploading the same chunk is skipped (idempotent); the current progress is returned.
 
-Errors (`400`): invalid parameters, MD5 mismatch, task already merged, chunk metadata inconsistent
-with the first chunk (`chunkTotal` / `chunkSize` / `fileSize` / `fileName`), chunk exceeding
-`max-chunk-size` / `chunk.max-size`, or the whole file exceeding `max-file-size`.
+Errors (`400`): invalid parameters, MD5 mismatch, chunk metadata inconsistent with the first chunk
+(`chunkTotal` / `chunkSize` / `fileSize` / `fileName`), chunk exceeding `max-chunk-size` /
+`chunk.max-size`, or the whole file exceeding `max-file-size`.
+`409` when the task is already merged or an async merge is pending/running/finished.
 `507` when accepting the file would exceed `quota.max-bytes`; `401` when access control is enabled
 and the token is missing/wrong.
 
@@ -96,8 +99,10 @@ Response `200`:
 }
 ```
 
-Errors (`400`): task not found, chunks incomplete, merged size does not match `fileSize`, or the file
-exceeds `max-file-size`. `507` when the merge would exceed `quota.max-bytes`.
+Errors: `404` when the task does not exist, `409` when chunks are missing (merge before the upload
+completes), `400` when the merged size does not match `fileSize` or the file exceeds `max-file-size`.
+`507` when the merge would exceed `quota.max-bytes`; `401` when access control is enabled and the
+token is missing/wrong.
 
 ## 3.1 Submit an Async Merge
 
@@ -141,6 +146,29 @@ reports `NONE`. A synchronously merged task reports `SUCCEEDED`.
 ```
 
 On `FAILED`, the `message` field carries the server-side error reason.
+
+## 3.3 Cancel a Task (rc.4)
+
+```
+POST /upload?action=cancel&identifier=<identifier>
+```
+
+Removes the task record, its uploaded chunks and any merged artifact dir, so the identifier can be
+reused for a brand-new upload. This is the explicit way to reclaim data on abandonment, or right
+after the merged artifact has been moved into business storage during the confirm phase.
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "message": "Upload task cancelled",
+  "identifier": "55e1c5ec9e2389c5be429808c9800131"
+}
+```
+
+Errors: `404` when the task does not exist, `409` while the async merge is `PENDING`/`RUNNING`
+(retry once it settles), `401` when access control is enabled and the token is missing/wrong.
 
 ## 4. Download (Resumable)
 

@@ -11,7 +11,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- Spring Boot 3.x (`jakarta.servlet`) adapter.
+- Spring Boot 3/4 (`jakarta.servlet`) adapter (deferred from rc.4; core already works on Jakarta stacks
+  via manual wiring).
+
+## [1.0.0-rc.4] - 2026-09-03
+
+**Feedback-driven release.** Addressed the integration feedback from a real consumer
+(`doc/user-feedback/upload-file-usage-feedback.md`, path-finder commit `62ae062`): a stable read/cancel
+contract for the confirm phase, stable HTTP error semantics for core failures, and documented cleanup /
+manual-wiring semantics.
+
+### Added
+
+- **Stable per-identifier read** – `ResumableUploadService.getTask(identifier)` returns the current
+  task whose `finalPath` is the authoritative merged-artifact location for the confirm phase (no more
+  guessing the directory layout).
+- **Explicit task cancellation** – `ResumableUploadService.cancelUpload(identifier [, token])` removes
+  the task record, its chunks and the merged artifact dir; returns `false` when nothing existed and
+  throws `409` while an async merge is pending/running. Exposed over HTTP as
+  `POST /upload?action=cancel&identifier=...` (new `AccessControl.ACTION_CANCEL`).
+- **Stable error semantics** – core failures now implement `UploadErrorCode.getHttpStatusCode()`:
+  the existing `ChecksumMismatchException` (`400`) / `AccessDeniedException` (`401`) /
+  `QuotaExceededException` (`507`) plus three new typed exceptions, `UploadValidationException` (`400`),
+  `UploadTaskNotFoundException` (`404`) and `UploadMergeConflictException` (`409`). The new types
+  subclass their generic Java counterparts (`IllegalArgumentException`, `NoSuchElementException`,
+  `IllegalStateException`), so existing broad catches keep working; integrations only need one
+  `UploadErrorCode` check to map statuses.
+- **Servlet mapping parity** – `UploadServlet` now maps failures via `UploadErrorCode` (yielding
+  `400/401/404/409/507` as documented) and registers the `cancel` action.
+
+### Changed
+
+- `merge`/`submitMerge`/chunk validation throw the typed exceptions above instead of the raw generic
+  ones — same failure cases, now with a stable HTTP status.
+- README / docs/API now document the confirm-phase `finalPath` contract, `getTask`/`cancelUpload`,
+  cleanup and orphan reclamation semantics, manual (core) wiring responsibilities for the
+  `upload-file.*` properties, the `UploadErrorCode` status table, and the AccessControl note for
+  existing-login (Bearer/SSO) integrations.
 
 ## [1.0.0-rc.3] - 2026-08-29
 

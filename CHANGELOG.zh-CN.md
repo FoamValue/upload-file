@@ -11,7 +11,36 @@
 
 ### 计划
 
-- Spring Boot 3.x（`jakarta.servlet`）适配。
+- Spring Boot 3/4（`jakarta.servlet`）适配（自 rc.4 顺延；core 在 jakarta 技术栈上可通过手工装配直接使用）。
+
+## [1.0.0-rc.4] - 2026-09-03
+
+**反馈驱动版本。** 依据真实使用方集成反馈（`doc/user-feedback/upload-file-usage-feedback.md`，
+path-finder commit `62ae062`）补齐：confirm 阶段的稳定读/取消契约、core 异常稳定 HTTP 语义，
+以及清理/手工装配语义的文档化。
+
+### 新增
+
+- **按 identifier 稳定读取**：`ResumableUploadService.getTask(identifier)` 返回当前任务，其
+  `finalPath` 是 confirm 阶段合并产物的权威定位，无需再猜目录结构。
+- **显式取消任务**：`ResumableUploadService.cancelUpload(identifier [, token])` 删除任务记录、
+  分片与合并产物目录；任务不存在返回 `false`，异步合并 PENDING/RUNNING 期间抛 `409`。
+  并通过 `POST /upload?action=cancel&identifier=...` 暴露（新增 `AccessControl.ACTION_CANCEL`）。
+- **稳定错误语义**：core 失败异常统一实现 `UploadErrorCode.getHttpStatusCode()`——既有
+  `ChecksumMismatchException`（`400`）/ `AccessDeniedException`（`401`）/ `QuotaExceededException`（`507`），
+  另新增三个带码异常 `UploadValidationException`（`400`）、`UploadTaskNotFoundException`（`404`）、
+  `UploadMergeConflictException`（`409`）。新类型分别为 `IllegalArgumentException`、
+  `NoSuchElementException`、`IllegalStateException` 的子类，既有宽泛 catch 继续生效；接入方只需
+  判一次 `UploadErrorCode` 即可完成状态码映射。
+- **Servlet 映射对齐**：`UploadServlet` 依据 `UploadErrorCode` 映射失败状态（`400/401/404/409/507`，
+  见文档），并新增 `cancel` action。
+
+### 变更
+
+- `merge`/`submitMerge`/分片校验抛出的异常由裸泛型异常换成上述带码类型——失败场景不变，但 HTTP 语义稳定。
+- README / docs/API 补充：confirm 阶段 `finalPath` 契约、`getTask`/`cancelUpload`、清理与孤儿回收语义、
+  手工装配（core）对 `upload-file.*` 属性的自理责任、`UploadErrorCode` 状态码表，以及对接既有登录态
+  （Bearer/SSO）的 AccessControl 说明。
 
 ## [1.0.0-rc.3] - 2026-08-29
 

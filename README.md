@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.3` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.4` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.3` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.4` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -31,6 +31,8 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Task-store migration** – `TaskStoreMigrator` copies in-flight tasks between stores (e.g. `FileTaskStore` → JDBC/Redis)
 - **Metadata versioning** – `schemaVersion` field so the metadata format can evolve safely
 - **Multi-instance coordination** – optional Redis lease lock so only one instance runs the cleanup scheduler
+- **Explicit task read & cancel** – `getTask(identifier)` as the stable read for the integration "confirm" phase, and `cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` that reclaim a task's chunks and merged artifact instead of waiting for the cleanup scheduler
+- **Stable error semantics** – core failures carry an `UploadErrorCode` with a stable HTTP status (`400`/`401`/`404`/`409`/`507`) that servlet and Spring integrations map automatically
 
 ## Modules
 
@@ -52,7 +54,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.3</version>
+    <version>1.0.0-rc.4</version>
 </dependency>
 ```
 
@@ -72,7 +74,11 @@ Available endpoints after startup:
 - `POST /upload?action=merge&identifier=xxx` – merge chunks
 - `POST /upload?action=mergeAsync&identifier=xxx` – submit an async merge (HTTP `202`), poll with `mergeStatus`
 - `GET /upload?action=mergeStatus&identifier=xxx` – query the async merge status
+- `POST /upload?action=cancel&identifier=xxx` – cancel a task and reclaim its data
 - `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download)
+
+> The auto-configuration targets **Spring Boot 2.x / `javax.servlet`**. A Spring Boot 3/4 (`jakarta.servlet`)
+> adapter is planned for a later release — see the [Changelog](CHANGELOG.md).
 
 ### Option 2: Plain Servlet container
 
@@ -106,6 +112,19 @@ service.uploadChunk(request, chunkInputStream);
 UploadProgress progress = service.getProgress(identifier);
 UploadResult result = service.merge(identifier);
 ```
+
+**Confirm phase (rc.4):** locate the merged artifact through the merge result or the task record, never
+by guessing the directory layout, and reclaim the task afterwards:
+
+```java
+UploadTask task = service.getTask(identifier).get();        // stable per-identifier read
+Path artifact = Paths.get(task.getFinalPath());              // authoritative merged location
+Files.move(artifact, businessDir.resolve(fileName));         // move into business storage
+service.cancelUpload(identifier);                            // remove task + leftover data
+```
+
+When no task exists `getTask` returns empty; `cancelUpload` returns `false` and throws `409`
+while an async merge is pending/running.
 
 ## Configuration Reference (Spring Boot)
 
@@ -189,6 +208,90 @@ query parameter. Requests without a valid token are rejected with `401`. Enablin
 without a token fails fast at startup so a misconfiguration never silently opens the endpoints.
 When security is off (the default), behavior is unchanged.
 
+> **Existing-login integrations:** to reuse your own session (Bearer/SSO) instead of a shared token,
+> implement the `AccessControl` SPI once and delegate `check(...)` to your principal — the core invokes
+> it at every endpoint. A Spring Security filter in front of `/upload` also works and is what most
+> single-tenant integrations do; the component only enforces its own SPI when it is installed.
+
+## Integration guidance (since 1.0.0-rc.4)
+
+### Locating the merged artifact ("confirm" phase)
+
+The merged file's location is a contract: read it from the merge result (`UploadResult.finalPath`,
+`MergeStatus.finalPath`) or from the task record via `getTask(identifier).getFinalPath()` — do not
+re-derive `{storage-dir}/files/{identifier}/{fileName}` yourself. Typical flow:
+
+```java
+// after the frontend reports merge SUCCEEDED / the sync merge returned
+UploadTask task = service.getTask(identifier).get();          // stable read (rc.4)
+Path artifact = Paths.get(task.getFinalPath());               // authoritative path
+Files.move(artifact, businessDir.resolve(task.getFileName())); // same disk => atomic move
+service.cancelUpload(identifier);                              // reclaim record + leftovers (rc.4)
+```
+
+`cancelUpload` removes the task record, its chunks and the merged artifact dir, returns `false` when
+nothing existed, and throws `409` while an async merge is pending/running (retry once it settles).
+
+### When is on-disk data reclaimed?
+
+- **Expired incomplete tasks** — `StorageCleanupService`'s TTL pass removes tasks idle longer than
+  `cleanup.task-ttl` together with their chunks.
+- **Orphans** — a chunk/merged dir whose task record is gone (e.g. after Redis metadata TTL expiry) is
+  removed by the opt-in orphan pass (`cleanup.orphan-enabled: true`). Orphan GC is never run against the
+  in-memory store.
+- **Merged-but-unclaimed artifacts of a live task are intentionally kept** — they are valid download
+  candidates, so they are only reclaimed by an explicit `cancelUpload` or after the task record expires.
+- **Recommendation:** wire the cleanup scheduler **and** call `cancelUpload` at confirm, so a multi-hundred-MB
+  merged artifact never has to wait for a TTL. Starter: `cleanup.enabled: true`, `cleanup.orphan-enabled: true`.
+  Core (manual): construct a `StorageCleanupService` sharing the upload service's `IdentifierLock` and call
+  `cleanup()` / `start(intervalMillis)`.
+
+### Manual (core) wiring consumes no `upload-file.*` properties
+
+Property binding, cleanup scheduling and the async pool live in the **Spring Boot starter**. When you
+hand-assemble `upload-file-core` (no starter), the following are your responsibility to configure
+programmatically — setting them in `application.yml` has no effect:
+`cleanup.enabled/interval/task-ttl/orphan-enabled/use-redis-lock`, `async-merge.enabled/thread-pool-size`,
+`max-request-size`, `security.enabled/token`, plus the multipart limits.
+Async merge is on only while `setAsyncExecutor(executor)` has been called (pass `null` or omit it to stay
+synchronous); cleanup only runs when you start its scheduler. The servlet module reads the same options as
+init-params instead.
+
+### Stable error semantics in your own HTTP layer
+
+Core exceptions describing a client-recoverable failure implement `UploadErrorCode`:
+
+| `UploadErrorCode` | HTTP | Thrown by |
+| --- | --- | --- |
+| `UploadValidationException` (a `IllegalArgumentException`) | `400` | invalid chunk params, metadata disagreement, size limits, missing chunks on merge |
+| `ChecksumMismatchException` | `400` | per-chunk MD5 mismatch |
+| `AccessDeniedException` | `401` | access-control rejection |
+| `UploadTaskNotFoundException` (a `NoSuchElementException`) | `404` | merge/submit on an unknown task |
+| `UploadMergeConflictException` (an `IllegalStateException`) | `409` | chunk upload to merged/running task, cancel during async merge |
+| `QuotaExceededException` | `507` | global `quota.max-bytes` exceeded |
+| anything else | `500` | server-side failure |
+
+The typed exceptions subclass their generic Java counterparts, so existing
+`catch (IllegalArgumentException / NoSuchElementException / IllegalStateException)` code keeps working.
+In a Spring `@ExceptionHandler`:
+
+```java
+@ExceptionHandler
+ResponseEntity<?> onUploadError(Exception e) {
+    int status = e instanceof UploadErrorCode ? ((UploadErrorCode) e).getHttpStatusCode() : 500;
+    return ResponseEntity.status(status).body(Map.of("code", status, "message", e.getMessage()));
+}
+```
+
+The official servlet applies this mapping and returns a JSON body automatically.
+
+### Range parsing without the download servlet
+
+`DownloadRange.parse(String)` in core parses single/multi-part `Range` headers and detects
+unsatisfiable ranges, so integrations that serve their own storage (e.g. files that were moved out of
+the component during the confirm phase) can reuse the parser instead of rewriting the range logic.
+Downloading a *component-merged* artifact is still best done through the official `/download` endpoint.
+
 ## HTTP API Overview
 
 | Method & Path | Description |
@@ -198,12 +301,13 @@ When security is off (the default), behavior is unchanged.
 | `POST /upload?action=merge&identifier=xxx` | Merge all chunks. Returns result JSON |
 | `POST /upload?action=mergeAsync&identifier=xxx` | Submit an async merge (`202`); new chunks are rejected while pending/running/succeeded |
 | `GET /upload?action=mergeStatus&identifier=xxx` | Query the async merge status (`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`) |
+| `POST /upload?action=cancel&identifier=xxx` | Cancel a task and reclaim its chunks/merged artifact |
 | `GET /download?identifier=xxx` | Full download (`200`) |
 | `GET /download?identifier=xxx` + `Range` header | Range download (`206` / `416`) |
 
-Common errors: `400` invalid request / exceeds `max-file-size`, `401` access denied (when access
-control is enabled), `404` file not found, `507 Insufficient Storage` exceeds `quota.max-bytes`,
-`416` unsatisfiable range.
+Error responses carry a JSON body and a stable status: `400` invalid request / exceeds size limits /
+MD5 mismatch, `401` access denied, `404` task not found, `409` merge-state conflict (see the table above),
+`507` quota exceeded, `416` unsatisfiable range.
 
 ## Build & Test
 
@@ -222,7 +326,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.3.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.4.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.

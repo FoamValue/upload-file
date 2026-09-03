@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.3`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.4`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.3` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.4` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -31,6 +31,8 @@
 - **任务存储迁移**：`TaskStoreMigrator` 可在存储间迁移进行中任务（如 `FileTaskStore` → JDBC/Redis）
 - **元数据版本化**：`schemaVersion` 字段，保障元数据格式安全演进
 - **多实例协调**：可选 Redis 租约锁，保证同一时刻只有一个实例执行清理调度
+- **任务显式读取与取消（rc.4）**：`getTask(identifier)` 作为集成侧「confirm 入库」阶段的稳定读接口；`cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` 可直接回收任务分片与合并产物，无需等待清理调度
+- **稳定的错误语义（rc.4）**：core 失败异常统一携带 `UploadErrorCode` 稳定 HTTP 状态码（`400`/`401`/`404`/`409`/`507`），Servlet 与 Spring 集成自动映射
 
 ## 模块说明
 
@@ -52,7 +54,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.3</version>
+    <version>1.0.0-rc.4</version>
 </dependency>
 ```
 
@@ -72,7 +74,11 @@ upload-file:
 - `POST /upload?action=merge&identifier=xxx` 合并
 - `POST /upload?action=mergeAsync&identifier=xxx` 提交异步合并（HTTP `202`），用 `mergeStatus` 轮询
 - `GET /upload?action=mergeStatus&identifier=xxx` 查询异步合并状态
+- `POST /upload?action=cancel&identifier=xxx` 取消任务并回收其数据
 - `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）
+
+> 自动配置面向 **Spring Boot 2.x / `javax.servlet`**；Spring Boot 3/4（`jakarta.servlet`）适配版计划
+> 在后续版本提供——见[更新日志](CHANGELOG.zh-CN.md)。
 
 ### 方式二：纯 Servlet 容器
 
@@ -107,6 +113,18 @@ service.uploadChunk(request, chunkInputStream);
 UploadProgress progress = service.getProgress(identifier);
 UploadResult result = service.merge(identifier);
 ```
+
+**confirm 入库阶段（rc.4）：** 通过合并结果或任务记录定位合并产物，切勿自行推导目录结构；完成后回收任务：
+
+```java
+UploadTask task = service.getTask(identifier).get();        // 稳定读接口
+Path artifact = Paths.get(task.getFinalPath());             // 合并产物的权威路径
+Files.move(artifact, businessDir.resolve(fileName));        // 迁入业务存储
+service.cancelUpload(identifier);                           // 删除任务 + 残留数据
+```
+
+任务不存在时 `getTask` 返回 empty；`cancelUpload` 在任务不存在时返回 `false`，在异步合并
+PENDING/RUNNING 期间抛出 `409`。
 
 ## 配置参考（Spring Boot）
 
@@ -188,6 +206,84 @@ upload-file:
 开启安全校验而未配置令牌会在启动时直接失败（fail-fast），避免误配置导致接口静默开放。
 安全关闭（默认）时行为与旧版本完全一致。
 
+> **对接已有登录态：** 如需复用自有会话（Bearer/SSO）而非共享令牌，实现一次 `AccessControl` SPI 并在
+> `check(...)` 中委托给当前登录主体即可——core 会在每个入口调用它。在 `/upload` 前置 Spring Security
+> 过滤器同样可行（多数单组织私有部署的选择）；组件只在自身 SPI 被装配时才强制其鉴权。
+
+## 集成指南（自 1.0.0-rc.4 起）
+
+### 合并产物的定位（confirm 入库阶段）
+
+合并产物的路径是**契约**：请从合并结果（`UploadResult.finalPath` / `MergeStatus.finalPath`）或任务记录
+`getTask(identifier).getFinalPath()` 读取，不要自行推导 `{storage-dir}/files/{identifier}/{fileName}`。
+典型流程：
+
+```java
+// 前端报告合并 SUCCEEDED / 同步 merge 返回后
+UploadTask task = service.getTask(identifier).get();           // 稳定读接口（rc.4）
+Path artifact = Paths.get(task.getFinalPath());                // 权威路径
+Files.move(artifact, businessDir.resolve(task.getFileName())); // 同盘 => 原子移动
+service.cancelUpload(identifier);                              // 回收记录 + 残留（rc.4）
+```
+
+`cancelUpload` 删除任务记录、其分片与合并产物目录；任务不存在时返回 `false`，异步合并 PENDING/RUNNING
+期间抛出 `409`（等待其结束后重试）。
+
+### 磁盘数据何时被回收
+
+- **超期未完成任务**：`StorageCleanupService` 的 TTL 扫描会清理超过 `cleanup.task-ttl` 未更新的任务及其分片。
+- **孤儿数据**：任务记录已消失（如 Redis 元数据 TTL 到期）但仍残留的分片/合并目录，由可选的孤儿清理
+  （`cleanup.orphan-enabled: true`）回收。孤儿扫描不会针对内存 store 执行。
+- **存续任务的「已合并未确认」产物会被保留**——它们仍是合法的下载对象，只能被显式 `cancelUpload`
+  或在任务记录超期后回收。
+- **建议**：接线清理调度 **并** 在 confirm 时调用 `cancelUpload`，避免上百 MB 的合并产物等 TTL。
+  Starter：`cleanup.enabled: true`、`cleanup.orphan-enabled: true`；
+  core 手工装配：构造与上传服务共享同一 `IdentifierLock` 的 `StorageCleanupService`，调用
+  `cleanup()` / `start(intervalMillis)`。
+
+### 手工装配（core）不消费 `upload-file.*` 属性
+
+属性绑定、清理调度与异步合并线程池都只存在于 **Spring Boot starter** 中。当直接手工装配
+`upload-file-core`（无 starter）时，以下项需**由调用方程序化配置**，仅写 `application.yml` 无效：
+`cleanup.enabled/interval/task-ttl/orphan-enabled/use-redis-lock`、`async-merge.enabled/thread-pool-size`、
+`max-request-size`、`security.enabled/token`，以及 multipart 限制。
+异步合并仅在调用 `setAsyncExecutor(executor)` 后生效（不调用或传 `null` 即保持同步合并）；清理只有启动
+其调度器才会执行。servlet 模块则通过 init-param 读取同名配置。
+
+### 自有 HTTP 层中的稳定错误语义
+
+描述「客户端可恢复失败」的 core 异常统一实现 `UploadErrorCode`：
+
+| `UploadErrorCode` | HTTP | 抛出场景 |
+| --- | --- | --- |
+| `UploadValidationException`（`IllegalArgumentException` 子类） | `400` | 分片参数非法、元数据不一致、大小超限、合并时缺分片 |
+| `ChecksumMismatchException` | `400` | 分片 MD5 不匹配 |
+| `AccessDeniedException` | `401` | 访问控制拒绝 |
+| `UploadTaskNotFoundException`（`NoSuchElementException` 子类） | `404` | 对不存在的任务执行 merge/submit |
+| `UploadMergeConflictException`（`IllegalStateException` 子类） | `409` | 向已合并/合并中的任务传分片、合并期间取消 |
+| `QuotaExceededException` | `507` | 超过全局 `quota.max-bytes` |
+| 其余异常 | `500` | 服务端失败 |
+
+带码异常是其 Java 泛型父类的子类，故既有的
+`catch (IllegalArgumentException / NoSuchElementException / IllegalStateException)` 代码仍然生效。
+Spring `@ExceptionHandler` 中：
+
+```java
+@ExceptionHandler
+ResponseEntity<?> onUploadError(Exception e) {
+    int status = e instanceof UploadErrorCode ? ((UploadErrorCode) e).getHttpStatusCode() : 500;
+    return ResponseEntity.status(status).body(Map.of("code", status, "message", e.getMessage()));
+}
+```
+
+官方 Servlet 已自动应用该映射并返回 JSON 响应体。
+
+### 不接下载 Servlet 时的 Range 解析
+
+core 的 `DownloadRange.parse(String)` 可解析单段/多段 `Range` 头并识别不可满足区间；集成方若自行
+提供下载（例如 confirm 阶段已迁出组件的文件），可直接复用它而非重写 Range 逻辑。下载仍存于组件的
+合并产物，仍建议走官方 `/download` 端点。
+
 ## HTTP API 概览
 
 | 方法与路径 | 说明 |
@@ -197,11 +293,12 @@ upload-file:
 | `POST /upload?action=merge&identifier=xxx` | 合并全部分片。返回结果 JSON |
 | `POST /upload?action=mergeAsync&identifier=xxx` | 提交异步合并（`202`）；进行/完成时拒收新分片 |
 | `GET /upload?action=mergeStatus&identifier=xxx` | 查询异步合并状态（`NONE/PENDING/RUNNING/SUCCEEDED/FAILED`） |
+| `POST /upload?action=cancel&identifier=xxx` | 取消任务并回收其分片/合并产物 |
 | `GET /download?identifier=xxx` | 完整下载（`200`） |
 | `GET /download?identifier=xxx` + `Range` 头 | 区间下载（`206` / `416`） |
 
-常见错误：`400` 参数非法 / 超过 `max-file-size`、`401` 访问被拒（启用访问控制时）、
-`404` 文件不存在、`507 Insufficient Storage` 超过 `quota.max-bytes`、`416` Range 不可满足。
+错误响应带 JSON 体与稳定状态码：`400` 参数非法/大小超限/MD5 不匹配、`401` 访问被拒、`404` 任务不存在、
+`409` 合并状态冲突（见上表）、`507` 配额超限、`416` Range 不可满足。
 
 ## 构建与测试
 
@@ -220,7 +317,7 @@ mvn install
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.3.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.4.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、

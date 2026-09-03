@@ -11,13 +11,15 @@
 通过 `security.header-name` 指定的请求头（默认 `X-Access-Token`）或 `token` 查询参数传递。
 令牌缺失或错误时返回 `401`。未启用（默认）时无需令牌。
 
-通用错误状态码（除各接口自身的错误外）：
+ 通用错误状态码（除各接口自身的错误外）。自 rc.4 起与 core 异常携带的 `UploadErrorCode` 一一对应，
+ HTTP 层集成上报的状态码一致：
 
 | 状态码 | 含义 |
 | --- | --- |
-| `400` | 参数非法，或文件超过 `max-file-size` / `chunk.max-size` |
+| `400` | 参数非法、元数据不一致、MD5 不匹配，或超过 `max-file-size` / `chunk.max-size` |
 | `401` | 访问被拒（启用访问控制，令牌缺失/错误） |
-| `404` | 文件不存在 |
+| `404` | 任务不存在 |
+| `409` | 合并状态冲突（向已合并/合并中的任务传分片、缺分片即合并、异步合并期间取消） |
 | `416` | `Range` 不可满足 |
 | `507` | 超过全局容量配额 `quota.max-bytes`（`Insufficient Storage`） |
 
@@ -59,9 +61,10 @@ multipart 字段：
 
 说明：同一分片重复上传直接跳过（幂等），返回当前进度。
 
-错误（`400`）：参数非法、MD5 不一致、任务已合并、分片元数据与首片不一致
+错误（`400`）：参数非法、MD5 不一致、分片元数据与首片不一致
 （`chunkTotal` / `chunkSize` / `fileSize` / `fileName`）、分片超过
 `max-chunk-size` / `chunk.max-size`，或整个文件超过 `max-file-size`。
+任务已合并或异步合并处于 PENDING/RUNNING/SUCCEEDED 时返回 `409`。
 接受该文件将超过 `quota.max-bytes` 时返回 `507`；启用访问控制且令牌缺失/错误时返回 `401`。
 
 ## 2. 查询上传进度
@@ -93,8 +96,9 @@ POST /upload?action=merge&identifier=<identifier>
 }
 ```
 
-错误（`400`）：任务不存在、分片不完整、合并后文件大小与 `fileSize` 不一致，或文件超过 `max-file-size`。
-合并将超过 `quota.max-bytes` 时返回 `507`。
+错误：任务不存在时返回 `404`，分片不完整（未上传完成即合并）时返回 `409`，合并后文件大小与
+`fileSize` 不一致或文件超过 `max-file-size` 时返回 `400`。合并将超过 `quota.max-bytes` 时返回 `507`；
+启用访问控制且令牌缺失/错误时返回 `401`。
 
 ## 3.1 提交异步合并
 
@@ -136,6 +140,28 @@ GET /upload?action=mergeStatus&identifier=<identifier>
 ```
 
 `FAILED` 时 `message` 字段携带服务端错误原因。
+
+## 3.3 取消任务（rc.4）
+
+```
+POST /upload?action=cancel&identifier=<identifier>
+```
+
+删除任务记录、已上传分片与合并产物目录，使该 identifier 可重新用于全新上传。这是上传放弃时，
+或在 confirm 阶段把合并产物迁入业务存储后的**显式回收**手段。
+
+响应 `200`：
+
+```json
+{
+  "success": true,
+  "message": "Upload task cancelled",
+  "identifier": "55e1c5ec9e2389c5be429808c9800131"
+}
+```
+
+错误：任务不存在返回 `404`；异步合并处于 `PENDING`/`RUNNING` 时返回 `409`（等待其结束后重试）；
+启用访问控制且令牌缺失/错误时返回 `401`。
 
 ## 4. 下载（支持断点续传）
 
