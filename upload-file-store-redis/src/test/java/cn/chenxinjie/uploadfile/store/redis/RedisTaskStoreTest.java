@@ -20,6 +20,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -146,5 +147,57 @@ public class RedisTaskStoreTest {
 
         assertTrue(store.get("h1").isPresent());
         assertFalse(other.get("h1").isPresent());
+    }
+
+    @Test
+    public void blankIdentifierIsTreatedAsAbsent() {
+        assertFalse(store.get(null).isPresent());
+        assertFalse(store.get("").isPresent());
+    }
+
+    @Test
+    public void literalNullValueIsTreatedAsAbsent() {
+        try (Jedis jedis = pool.getResource()) {
+            jedis.set(PREFIX + "nullval", "null");
+        }
+        assertFalse(store.get("nullval").isPresent());
+    }
+
+    @Test
+    public void listSkipsCorruptRecords() {
+        store.save(sampleTask("good1"));
+        try (Jedis jedis = pool.getResource()) {
+            jedis.set(PREFIX + "corrupt", "this is { not json");
+            jedis.sadd(PREFIX + "index", "corrupt");
+        }
+
+        assertEquals(1, store.list().size());
+        assertEquals("good1", store.list().iterator().next().getIdentifier());
+    }
+
+    @Test
+    public void singleArgumentConstructorUsesDefaultPrefix() {
+        RedisTaskStore defaults = new RedisTaskStore(pool);
+        defaults.save(sampleTask("def1"));
+
+        assertTrue(defaults.get("def1").isPresent());
+        assertTrue(defaults.list().stream().anyMatch(t -> "def1".equals(t.getIdentifier())));
+    }
+
+    @Test
+    public void createFactoryBuildsUsableStoreWithoutPassword() {
+        RedisTaskStore created = RedisTaskStore.create(redis.host(), redis.port(), "", PREFIX + "fact:", 0);
+        created.save(sampleTask("f1"));
+
+        assertTrue(created.get("f1").isPresent());
+        assertFalse(created.get("f2").isPresent());
+    }
+
+    @Test
+    public void createFactoryAcceptsPasswordEvenWhenServerHasNone() {
+        // Building the pool must not connect (no AUTH is attempted until the first command),
+        // so the password branch of the factory can be exercised without a password-protected server.
+        RedisTaskStore created = RedisTaskStore.create(redis.host(), redis.port(), "secret", PREFIX + "pw:", 0);
+        assertNotNull(created);
     }
 }

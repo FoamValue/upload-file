@@ -24,7 +24,7 @@ import org.springframework.mock.web.MockPart;
 import org.springframework.mock.web.MockServletConfig;
 import org.springframework.mock.web.MockServletContext;
 
-import javax.servlet.http.Part;
+import jakarta.servlet.http.Part;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 

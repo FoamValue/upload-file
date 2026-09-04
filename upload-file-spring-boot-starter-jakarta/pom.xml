@@ -16,9 +16,9 @@
         <version>1.0.0-rc.5</version>
     </parent>
 
-    <artifactId>upload-file-spring-boot-starter</artifactId>
-    <name>upload-file-spring-boot-starter</name>
-    <description>Spring Boot 2.x auto-configuration: auto-wires core services and registers upload/download servlets</description>
+    <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+    <name>upload-file-spring-boot-starter-jakarta</name>
+    <description>Spring Boot 3/4 (jakarta) auto-configuration: drop-in twin of upload-file-spring-boot-starter; auto-wires core services and registers upload/download servlets</description>
 
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>
@@ -27,6 +27,25 @@
         <url>https://github.com/FoamValue/upload-file</url>
     </scm>
 
+    <properties>
+        <!-- Import the Spring Boot 4 BOM module-locally so the jakarta modules resolve the
+             Boot 4 spring-boot(-autoconfigure) / jakarta.servlet-api / test-starter versions;
+             overrides the parent Boot 2.7 BOM. Version property inherited from the parent pom
+             (spring.boot4.version); bytecode target stays at the parent's release 8. -->
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot4.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
     <dependencies>
         <dependency>
             <groupId>cn.chenxinjie</groupId>
@@ -34,7 +53,7 @@
         </dependency>
         <dependency>
             <groupId>cn.chenxinjie</groupId>
-            <artifactId>upload-file-servlet</artifactId>
+            <artifactId>upload-file-servlet-jakarta</artifactId>
         </dependency>
         <dependency>
             <groupId>cn.chenxinjie</groupId>
@@ -58,8 +77,8 @@
             <scope>provided</scope>
         </dependency>
         <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
             <scope>provided</scope>
         </dependency>
         <dependency>

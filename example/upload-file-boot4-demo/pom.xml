@@ -17,19 +17,33 @@
         <relativePath>../..</relativePath>
     </parent>
 
-    <artifactId>upload-file-demo</artifactId>
-    <name>upload-file-demo</name>
-    <description>Demo application: Spring Boot large-file chunked upload / resumable download demo (with frontend page)</description>
+    <artifactId>upload-file-boot4-demo</artifactId>
+    <name>upload-file-boot4-demo</name>
+    <description>Demo application: Spring Boot 4 (jakarta) large-file chunked upload / resumable download demo using upload-file-spring-boot-starter-jakarta</description>
 
     <properties>
         <!-- The demo application is not published to the Central Repository -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- Import the Spring Boot 4 BOM module-locally (jakarta); overrides the parent Boot 2.7 BOM.
+             Version property inherited from the parent pom (spring.boot4.version). -->
     </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-dependencies</artifactId>
+                <version>${spring.boot4.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <dependency>
             <groupId>cn.chenxinjie</groupId>
-            <artifactId>upload-file-spring-boot-starter</artifactId>
+            <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
         </dependency>
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -42,6 +56,7 @@
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <version>${spring.boot4.version}</version>
                 <executions>
                     <execution>
                         <goals>
