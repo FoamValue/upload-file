@@ -5,15 +5,21 @@
 ## 模块依赖
 
 ```
-upload-file (父 POM / 聚合器)
-├── upload-file-core                        纯 Java，无框架依赖
-├── upload-file-servlet                     Servlet 3.0+ 接入层
-├── upload-file-spring-boot-starter         Spring Boot 自动配置
-├── upload-file-store-jdbc                  可选：JDBC 版 TaskStore（H2 测试）
-├── upload-file-store-redis                 可选：Redis 版 TaskStore（Jedis）
-├── example/upload-file-demo                演示用例：Spring Boot + 前端页面
-└── example/upload-file-servlet-demo        演示用例：纯 Servlet，web.xml 装配
+upload-file（父 POM / 聚合器）
+├── upload-file-core                         纯 Java，无框架依赖
+├── upload-file-servlet                      Servlet 3.0+（`javax.servlet`）接入层
+├── upload-file-servlet-jakarta              upload-file-servlet 的 jakarta 孪生版（Servlet 5/6，FQCN 相同）
+├── upload-file-spring-boot-starter          Spring Boot 2.x（`javax`）自动配置
+├── upload-file-spring-boot-starter-jakarta  starter 的 Spring Boot 3/4（`jakarta`）孪生版
+├── upload-file-store-jdbc                   可选：JDBC 版 TaskStore（H2 测试）
+├── upload-file-store-redis                  可选：Redis 版 TaskStore（Jedis）
+├── example/upload-file-demo                 演示用例：Spring Boot 2 + 前端页面
+├── example/upload-file-boot4-demo           演示用例：Spring Boot 4 + 前端页面（jakarta starter）
+└── example/upload-file-servlet-demo         演示用例：纯 Servlet，web.xml 装配
 ```
+
+`javax` 与 `jakarta` 的 servlet/starter 模块是**并行孪生**：FQCN 与行为一致，仅编译所依赖的 servlet 命名空间
+不同。核心逻辑不引用任何 servlet API，因此 `upload-file-core` 与两个 store 模块由两代共享、原样复用。
 
 ## 核心概念
 

@@ -6,14 +6,22 @@
 
 ```
 upload-file (parent POM / aggregator)
-├── upload-file-core                   pure Java, no framework dependencies
-├── upload-file-servlet                Servlet 3.0+ integration layer
-├── upload-file-spring-boot-starter    Spring Boot auto-configuration
-├── upload-file-store-jdbc             optional: JDBC TaskStore (H2 test)
-├── upload-file-store-redis            optional: Redis TaskStore (Jedis)
-├── example/upload-file-demo            demo: Spring Boot + frontend page
-└── example/upload-file-servlet-demo    demo: plain Servlet wired via web.xml
+├── upload-file-core                     pure Java, no framework dependencies
+├── upload-file-servlet                  Servlet 3.0+ (`javax.servlet`) integration layer
+├── upload-file-servlet-jakarta          jakarta twin of upload-file-servlet (Servlet 5/6, same FQCNs)
+├── upload-file-spring-boot-starter      Spring Boot 2.x (`javax`) auto-configuration
+├── upload-file-spring-boot-starter-jakarta   Spring Boot 3/4 (`jakarta`) twin of the starter
+├── upload-file-store-jdbc               optional: JDBC TaskStore (H2 test)
+├── upload-file-store-redis              optional: Redis TaskStore (Jedis)
+├── example/upload-file-demo             demo: Spring Boot 2 + frontend page
+├── example/upload-file-boot4-demo       demo: Spring Boot 4 + frontend page (jakarta starter)
+└── example/upload-file-servlet-demo     demo: plain Servlet wired via web.xml
 ```
+
+The `javax` and `jakarta` servlet/starter modules are **parallel twins**: identical FQCNs and behaviour, differing
+only in the servlet namespace they compile against. Core logic never references servlet APIs, so `upload-file-core`
+and the two store modules are shared unchanged by both generations.
+
 
 ## Core Concepts
 

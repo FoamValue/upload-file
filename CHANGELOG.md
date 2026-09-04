@@ -11,8 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-- Spring Boot 3/4 (`jakarta.servlet`) adapter (deferred from rc.4; core already works on Jakarta stacks
-  via manual wiring).
+- **`1.0.0-rc.5` — Spring Boot 4 / jakarta starter** (feedback P0-1): official `upload-file-servlet-jakarta`
+  (`jakarta.servlet`, Servlet 5/6) and `upload-file-spring-boot-starter-jakarta` (Spring Boot 4.0.0+, Boot 3.x
+  expected) as drop-in twins of the `javax` artifacts, plus a Boot 4 demo — see
+  [V1.0.0-rc.5 Task Plan](docs/PLAN-V1.0.0-rc.5.md).
 
 ## [1.0.0-rc.4] - 2026-09-03
 

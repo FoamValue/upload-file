@@ -11,7 +11,10 @@
 
 ### 计划
 
-- Spring Boot 3/4（`jakarta.servlet`）适配（自 rc.4 顺延；core 在 jakarta 技术栈上可通过手工装配直接使用）。
+- **`1.0.0-rc.5` — Spring Boot 4 / jakarta starter**（反馈 P0-1）：官方 `upload-file-servlet-jakarta`
+  （`jakarta.servlet`，Servlet 5/6）与 `upload-file-spring-boot-starter-jakarta`（Spring Boot 4.0.0+，
+  3.x 预期兼容），作为 `javax` 产物的无缝孪生版，另附 Boot 4 演示——见
+  [V1.0.0-rc.5 任务开发计划](docs/PLAN-V1.0.0-rc.5.zh-CN.md)。
 
 ## [1.0.0-rc.4] - 2026-09-03
 

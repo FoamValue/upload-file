@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.4`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.5`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
-| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
+| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.4` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.5` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -39,24 +39,42 @@
 | 模块 | 说明 | 引用方式 |
 | --- | --- | --- |
 | `upload-file-core` | 核心纯 Java 组件：模型、校验、存储 SPI、上传/下载/清理服务 | 任何 Java/Maven 项目 |
-| `upload-file-servlet` | Servlet 3.0+ 接入：分片上传 Servlet、Range 下载 Servlet | Servlet 容器项目 |
-| `upload-file-spring-boot-starter` | Spring Boot 2.x 自动配置，零配置开箱即用 | Spring Boot 项目 |
+| `upload-file-servlet` | Servlet 3.0+（`javax.servlet`）接入：分片上传 Servlet、Range 下载 Servlet | Servlet 3/4 容器项目 |
+| `upload-file-servlet-jakarta` | `upload-file-servlet` 的 Jakarta Servlet 5/6（`jakarta.servlet`）孪生版（FQCN 相同，无缝替换） | Tomcat 10/11、Boot 3/4 项目 |
+| `upload-file-spring-boot-starter` | Spring Boot 2.x（`javax.servlet`）自动配置，零配置开箱即用 | Spring Boot 2.x 项目 |
+| `upload-file-spring-boot-starter-jakarta` | starter 的 Spring Boot 3/4（`jakarta.servlet`）孪生版（`upload-file.*` 属性一致，无缝替换） | Spring Boot 4.0.0+ 项目（3.x 预期兼容） |
 | `upload-file-store-jdbc` | 可选：JDBC 版 `TaskStore`（自动建表，H2 测试） | 配置 `metadata-store=jdbc` 时 |
 | `upload-file-store-redis` | 可选：Redis 版 `TaskStore`（基于 Jedis） | 配置 `metadata-store=redis` 时 |
-| `example/upload-file-demo` | 演示用例：Spring Boot + 前端页面，展示完整断点续传流程 | — |
+| `example/upload-file-demo` | 演示用例：Spring Boot 2 + 前端页面，展示完整断点续传流程 | — |
+| `example/upload-file-boot4-demo` | 演示用例：Spring Boot 4（`jakarta`），使用 `upload-file-spring-boot-starter-jakarta` | — |
 | `example/upload-file-servlet-demo` | 演示用例：纯 Servlet（无 Spring），通过 web.xml 装配 | — |
 
 ## 快速开始
 
 ### 方式一：Spring Boot 项目（推荐）
 
+**Spring Boot 4.0.0+（或 3.x，即 jakarta 技术栈）**：使用 jakarta starter（运行期 JDK 17+）：
+
+```xml
+<dependency>
+    <groupId>cn.chenxinjie</groupId>
+    <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+    <version>1.0.0-rc.5</version>
+</dependency>
+```
+
+**Spring Boot 2.x（`javax.servlet`）**：使用原版 starter：
+
 ```xml
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.4</version>
+    <version>1.0.0-rc.5</version>
 </dependency>
 ```
+
+两个 starter 共享相同的包名（`cn.chenxinjie.uploadfile.springboot.*`）、相同的 `upload-file.*` 属性与端点，
+切换 Boot 世代只需更换 Maven 坐标。**切勿把 `javax` 产物与其 `-jakarta` 孪生版同时放入同一 classpath**——二选一。
 
 配置 `application.yml`：
 
@@ -77,12 +95,13 @@ upload-file:
 - `POST /upload?action=cancel&identifier=xxx` 取消任务并回收其数据
 - `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）
 
-> 自动配置面向 **Spring Boot 2.x / `javax.servlet`**；Spring Boot 3/4（`jakarta.servlet`）适配版计划
-> 在后续版本提供——见[更新日志](CHANGELOG.zh-CN.md)。
+> Boot 3/4 通过 `AutoConfiguration.imports`、Boot 2.x 通过 `spring.factories` 发现自动配置；servlet 层依据
+> 所选产物面向 `javax.servlet`（Boot 2 / Servlet 3.1）或 `jakarta.servlet`（Boot 3/4 / Tomcat 10+）。
 
 ### 方式二：纯 Servlet 容器
 
-依赖 `upload-file-servlet`，通过注解扫描注册两个 Servlet（`/upload`、`/download`），
+依赖 `upload-file-servlet`（Servlet 3/4，`javax`）或 `upload-file-servlet-jakarta`（Servlet 5/6，
+`jakarta`，如 Tomcat 10/11），通过注解扫描注册两个 Servlet（`/upload`、`/download`），
 并可通过 init-param 指定存储目录。要求 Servlet 3.0+（下载超过 2GB 的区间内容需要 Servlet 3.1+）：
 
 ```xml
@@ -308,16 +327,29 @@ mvn install
 
 - 要求 Maven 3.6.3+、JDK 8+；
 - 编译目标 `--release 8`，产物为 JDK8 字节码，**JDK 8 可直接引用**；
-- 由于使用了 `--release`，从源码构建需要 JDK 9+（若须在 JDK 8 工具链上构建，移除父 POM 中的 `maven.compiler.release` 即可）。
+- 由于使用了 `--release`，从源码构建需要 JDK 9+（若须在 JDK 8 工具链上构建，移除父 POM 中的 `maven.compiler.release` 即可）；
+- 自 `1.0.0-rc.5` 起 reactor 含 jakarta 模块（`upload-file-servlet-jakarta`、
+  `upload-file-spring-boot-starter-jakarta`、`example/upload-file-boot4-demo`），其 Spring Boot 4 / Servlet 6
+  依赖需要 **JDK 17+** 工具链，因此根目录全量 `mvn verify` 需在 JDK 17+ 上执行；在 JDK 8 工具链上仅构建
+  `javax` 线请用子集构建，如 `mvn install -pl upload-file-core,upload-file-servlet,upload-file-spring-boot-starter -am`。
 
 ## 运行 Demo
 
-**Spring Boot Demo**（`example/upload-file-demo`）：
+**Spring Boot 4 Demo**（`example/upload-file-boot4-demo`，使用 `upload-file-spring-boot-starter-jakarta`）：
+
+```bash
+mvn -pl example/upload-file-boot4-demo spring-boot:run
+```
+
+浏览器访问 <http://localhost:8080/>，在真实 Boot 4（`jakarta`）运行时上体验分片上传、暂停续传、
+异步合并与断点续传下载。
+
+**Spring Boot 2 Demo**（`example/upload-file-demo`）：
 
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.4.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.5.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
@@ -350,6 +382,8 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
+- [V1.0.0-rc.5 任务开发计划（Spring Boot 4 / jakarta starter）](docs/PLAN-V1.0.0-rc.5.zh-CN.md)
+- [V1.0.0-rc.4 任务开发计划（反馈驱动集成优化）](docs/PLAN-V1.0.0-rc.4.zh-CN.md)
 - [V1.0.0-rc.3 任务开发计划（生产就绪加固）](docs/PLAN-V1.0.0-rc.3.zh-CN.md)
 
 ## 许可证

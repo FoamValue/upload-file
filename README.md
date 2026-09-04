@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.4` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.5` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
-| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-spring-boot-starter` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-servlet-demo` |
+| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.4` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.5` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -39,24 +39,43 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 | Module | Description | How to use |
 | --- | --- | --- |
 | `upload-file-core` | Core pure-Java components: models, checksum, storage SPI, upload/download/cleanup services | Any Java/Maven project |
-| `upload-file-servlet` | Servlet 3.0+ integration: chunk-upload Servlet and Range-download Servlet | Servlet container projects |
-| `upload-file-spring-boot-starter` | Spring Boot 2.x auto-configuration, zero-config out of the box | Spring Boot projects |
+| `upload-file-servlet` | Servlet 3.0+ (`javax.servlet`) integration: chunk-upload Servlet and Range-download Servlet | Servlet 3/4 container projects |
+| `upload-file-servlet-jakarta` | Jakarta Servlet 5/6 (`jakarta.servlet`) twin of `upload-file-servlet` (same FQCNs — drop-in) | Tomcat 10/11, Boot 3/4 projects |
+| `upload-file-spring-boot-starter` | Spring Boot 2.x (`javax.servlet`) auto-configuration, zero-config out of the box | Spring Boot 2.x projects |
+| `upload-file-spring-boot-starter-jakarta` | Spring Boot 3/4 (`jakarta.servlet`) twin of the starter (same `upload-file.*` properties — drop-in) | Spring Boot 4.0.0+ projects (3.x expected) |
 | `upload-file-store-jdbc` | Optional: JDBC-backed `TaskStore` (auto table creation, H2 test) | when `metadata-store=jdbc` |
 | `upload-file-store-redis` | Optional: Redis-backed `TaskStore` (Jedis) | when `metadata-store=redis` |
-| `example/upload-file-demo` | Demo app: Spring Boot + frontend page showing the full resumable workflow | — |
+| `example/upload-file-demo` | Demo app: Spring Boot 2 + frontend page showing the full resumable workflow | — |
+| `example/upload-file-boot4-demo` | Demo app: Spring Boot 4 (`jakarta`) using `upload-file-spring-boot-starter-jakarta` | — |
 | `example/upload-file-servlet-demo` | Demo app: plain Servlet (no Spring), wired via `web.xml` | — |
 
 ## Quick Start
 
 ### Option 1: Spring Boot project (recommended)
 
+**Spring Boot 4.0.0+ (or 3.x — the jakarta stack):** use the jakarta starter (JDK 17+ at runtime):
+
+```xml
+<dependency>
+    <groupId>cn.chenxinjie</groupId>
+    <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+    <version>1.0.0-rc.5</version>
+</dependency>
+```
+
+**Spring Boot 2.x (`javax.servlet`):** use the original starter:
+
 ```xml
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.4</version>
+    <version>1.0.0-rc.5</version>
 </dependency>
 ```
+
+The two starters share the same package names (`cn.chenxinjie.uploadfile.springboot.*`), the same
+`upload-file.*` properties and the same endpoints, so switching Boot generations only changes the Maven
+coordinate. **Never put a `javax` artifact and its `-jakarta` twin on one classpath** — pick one.
 
 Configure `application.yml`:
 
@@ -77,12 +96,16 @@ Available endpoints after startup:
 - `POST /upload?action=cancel&identifier=xxx` – cancel a task and reclaim its data
 - `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download)
 
-> The auto-configuration targets **Spring Boot 2.x / `javax.servlet`**. A Spring Boot 3/4 (`jakarta.servlet`)
-> adapter is planned for a later release — see the [Changelog](CHANGELOG.md).
+> The auto-configuration is discovered through Spring Boot's `AutoConfiguration.imports` on Boot 3/4 and
+> through `spring.factories` on Boot 2.x. The servlet layer targets `javax.servlet` (Boot 2 / Servlet 3.1)
+> or `jakarta.servlet` (Boot 3/4 / Tomcat 10+) depending on the artifact you pick.
 
 ### Option 2: Plain Servlet container
 
-Depend on `upload-file-servlet`; the two servlets (`/upload`, `/download`) are registered via annotation scanning. Requires Servlet 3.0+ (downloading a range over 2 GB requires Servlet 3.1+). Storage directories can be configured with init-params:
+Depend on `upload-file-servlet` (Servlet 3/4, `javax`) or `upload-file-servlet-jakarta` (Servlet 5/6,
+`jakarta`, e.g. Tomcat 10/11); the two servlets (`/upload`, `/download`) are registered via annotation
+scanning. Requires Servlet 3.0+ (downloading a range over 2 GB requires Servlet 3.1+). Storage
+directories can be configured with init-params:
 
 ```xml
 <servlet>
@@ -318,15 +341,29 @@ mvn install
 - Requires Maven 3.6.3+ and JDK 8+
 - Compiles with `--release 8`, producing JDK 8 bytecode — **usable directly on JDK 8**
 - Because `--release` is used, building from source requires JDK 9+ (to build on a JDK 8 toolchain, remove `maven.compiler.release` from the parent POM)
+- Since `1.0.0-rc.5` the reactor also contains the jakarta modules (`upload-file-servlet-jakarta`,
+  `upload-file-spring-boot-starter-jakarta`, `example/upload-file-boot4-demo`), whose Spring Boot 4 /
+  Servlet 6 dependencies need a **JDK 17+** toolchain. A full root `mvn verify` therefore runs on JDK 17+;
+  to build only the JDK-8 `javax` line on a JDK 8 toolchain use a subset build, e.g.
+  `mvn install -pl upload-file-core,upload-file-servlet,upload-file-spring-boot-starter -am`.
 
 ## Run the Demo
 
-**Spring Boot demo** (`example/upload-file-demo`):
+**Spring Boot 4 demo** (`example/upload-file-boot4-demo`, uses `upload-file-spring-boot-starter-jakarta`):
+
+```bash
+mvn -pl example/upload-file-boot4-demo spring-boot:run
+```
+
+Open <http://localhost:8080/> and exercise chunked upload, pause/resume, async merge and resumable download
+on a real Boot 4 (`jakarta`) runtime.
+
+**Spring Boot 2 demo** (`example/upload-file-demo`):
 
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.4.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.5.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
@@ -358,6 +395,8 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
 - [Changelog](CHANGELOG.md)
+- [V1.0.0-rc.5 Task Plan (Spring Boot 4 / jakarta starter)](docs/PLAN-V1.0.0-rc.5.md)
+- [V1.0.0-rc.4 Task Plan (feedback-driven integration)](docs/PLAN-V1.0.0-rc.4.md)
 - [V1.0.0-rc.3 Task Plan (production hardening)](docs/PLAN-V1.0.0-rc.3.md)
 
 ## License
