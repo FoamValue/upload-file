@@ -8,7 +8,9 @@
 > （如运行于 JDK 26 / Spring Boot 4.1.1 的 path-finder）无法使用，被迫手工装配 core。rc.5 发布
 > `-jakarta` 孪生产物，做到源码级无缝替换。
 >
-> ⏳ **状态：计划中，尚未实现。** 目标版本 `1.0.0-rc.5`。
+> ✅ **状态：已在 `1.0.0-rc.5` 实现并发布。** T19–T24 全部完成：`upload-file-servlet-jakarta` /
+> `upload-file-spring-boot-starter-jakarta` 孪生产物与 `example/upload-file-boot4-demo` 均已随 `1.0.0-rc.5`
+> 发布，javax 产物保持不变——见[更新日志](../CHANGELOG.zh-CN.md)。
 
 ## 一、目标与范围
 

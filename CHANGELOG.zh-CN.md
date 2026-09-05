@@ -7,14 +7,84 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
-## [Unreleased]
+## [1.0.0-rc.6] - 2026-09-05
 
-### 计划
+**HTTP 层商业化可接入版本（安全与审计对齐）。** 解决 path-finder ADR-001/UPGRADE 评估结论（`-jakarta` 产物
+只是 javax starter 的 drop-in，而非「core 手工装配 + 自研 MVC 端点」方案的 drop-in）。官方 servlet/starter
+HTTP 层现可被商业系统直接采用：端点可控（含 `/download` 默认关闭）、`AccessControl` 增量式决策返回 + 审计钩子、
+符号错误码 + 可选的统一错误体、multipart 策略化。
 
-- **`1.0.0-rc.5` — Spring Boot 4 / jakarta starter**（反馈 P0-1）：官方 `upload-file-servlet-jakarta`
-  （`jakarta.servlet`，Servlet 5/6）与 `upload-file-spring-boot-starter-jakarta`（Spring Boot 4.0.0+，
-  3.x 预期兼容），作为 `javax` 产物的无缝孪生版，另附 Boot 4 演示——见
-  [V1.0.0-rc.5 任务开发计划](docs/PLAN-V1.0.0-rc.5.zh-CN.md)。
+### 新增
+
+- **端点注册可控**：`upload-file.endpoint.enabled`（默认 `true`；`false` = 纯 bean 模式，只装配服务 Bean、
+  不注册 Servlet）、`endpoint.upload-enabled`（默认 `true`）、`endpoint.download-enabled`
+  （**默认 `false`**——不显式开启则不再注册下载 Servlet）。两个注册 Bean 均可被同名 Bean 覆盖。
+- **决策返回式 `AccessControl`（增量）**：新增默认方法 `decide(...)` 返回 `AccessDecision`
+  （`allow()` / `deny(status, reason)`）；旧 `void check(...)` 保留并标 `@Deprecated`、经默认桥接，
+  既有实现零改动。`AccessDeniedException` 支持可选 status（默认 `401`），宿主可区分 `401`/`403`。
+- **审计钩子**：可选 `AccessControlListener` SPI，在上传/下载服务的每个入口（放行/拒绝 + 决策耗时）触发；
+  MVC 与 Servlet 路径事件一致。内置结构化访问日志由 `upload-file.observability.access-log` 开启
+  （默认 `false`）。
+- **符号错误码**：`UploadErrorCode.code()` 返回显式 `UploadErrorCodes` 目录中的稳定码（始终可用、非类名派生）。
+- **统一错误体（可选）**：`upload-file.http.error-body=standard` 将所有失败渲染为
+  `UploadHttpError{code,status,message,identifier,action}`；默认 `legacy` 保持 rc.5 端点专用模型逐字节一致。
+  `UploadErrorRenderer` SPI 支持宿主自定信封。
+- **multipart 策略**：`upload-file.multipart.strategy`（`component` | `spring` | `unlimited`，默认
+  `component` = rc.5 行为）。`spring` 跟随 `spring.servlet.multipart.*` / `spring.http.multipart.*`
+  （Boot 默认 1MB/10MB）；`unlimited` 关闭容器上限。
+- **可选取消语义**：`upload-file.http.cancel-not-found-status=200` 将取消不存在任务视为幂等 `200`
+  （默认 `404`）。
+
+### 变更（breaking 默认，已标注）
+
+- `GET /upload` 必须有已知 `action`：缺失或未知 action 返回 `400`（`MISSING_ACTION` /
+  `UPLOAD_UNKNOWN_ACTION`），不再当作 progress。
+- merge/cancel/status/progress 的非 `UploadErrorCode` 服务端故障（及非 `IllegalArgumentException` 客户端
+  错误）返回 `500`，不再吞成 `400`。合并大小不符、异步合并未开启改为带稳定码的 `UploadValidationException`
+  （`400`）。
+- `/download` 默认不再注册（见上）——恢复请设 `upload-file.endpoint.download-enabled=true`；README 顶部已
+  置顶提示。
+
+### 兼容性
+
+- `AccessControl` 保持增量——Boot 2 / javax 手工装配使用方 rc.6 无需改代码。
+- 其余新能力全部 off-by-default；成功体、既有属性与端点不变。
+- 无磁盘布局/数据格式变化；升级仅重启。
+
+## [1.0.0-rc.5] - 2026-09-04
+
+**Jakarta / Spring Boot 4 版本。** 消除使用方反馈（`doc/user-feedback/upload-file-usage-feedback.md`，P0-1）
+中最后一个顶层集成阻塞：官方 servlet 与 starter 产物基于 `javax.servlet`，导致 Spring Boot 3/4 使用方被迫
+降级为 core 手工装配。rc.5 发布 `-jakarta` 孪生产物（FQCN 与 `upload-file.*` 属性一致，源码级无缝替换），
+另附 Boot 4 演示。仅为打包层增量——无 core API / SPI 变更。
+
+### 新增
+
+- **`upload-file-servlet-jakarta`**：`upload-file-servlet` 的 Jakarta Servlet 5/6（`jakarta.servlet`）孪生版
+  （`UploadFileContext` / `UploadServlet` / `DownloadServlet`，FQCN 与行为一致——只换 Maven 坐标，不改代码）。
+- **`upload-file-spring-boot-starter-jakarta`**：starter 的 Spring Boot 4.0.0+（3.x 预期兼容）孪生版：
+  FQCN、`upload-file.*` 属性集与默认值完全一致，经 Spring Boot 的 `AutoConfiguration.imports` 文件注册
+  （取代 `spring.factories`）。可无缝替换 `upload-file-spring-boot-starter`。
+- **`example/upload-file-boot4-demo`**：基于 jakarta starter 的 Spring Boot 4.0.0+ 演示（JDK 17+），在真实
+  Boot 4 运行时验证完整续传流程（分片上传 → 暂停/续传 → `mergeAsync`/`mergeStatus` → 经
+  `getTask(...).getFinalPath()` confirm → Range 下载）与 `action=cancel`。
+- Boot 2 演示（`example/upload-file-demo`）新增异步合并与 `action=cancel` 走查。
+
+### 变更
+
+- 版本号升至 `1.0.0-rc.5`；jakarta 模块与 Boot 4 demo 纳入同一 reactor。读取 Servlet 6 / Boot 4 类文件使
+  **全量根构建需 JDK 17+**；各产物字节码仍为 `--release 8`，JDK 8 使用方以
+  `mvn install -pl upload-file-core,upload-file-servlet,upload-file-spring-boot-starter -am` 构建 javax 子集。
+- README / docs/API / docs/DESIGN / docs/ROADMAP 补充 javax↔jakarta 产物矩阵、Boot 4.0.0+ 快速开始、
+  JDK 17 构建基线与坐标替换升级路径——见 [V1.0.0-rc.5 任务开发计划](docs/PLAN-V1.0.0-rc.5.zh-CN.md)。
+
+### 兼容性
+
+- `javax` 产物（`upload-file-servlet`、`upload-file-spring-boot-starter`）不变——Boot 2 / Servlet 3.1 使用方
+  坐标与行为不变。
+- `-jakarta` 孪生产物为无缝替换，但 `javax` 产物与其 `-jakarta` 孪生版**不可同存于同一 classpath**——二选一。
+- rc.5 无 SPI / core API 变更，也不新增任何 `upload-file.*` 配置项；Boot 4 上的 core 手工装配继续可用，
+  且因 jakarta starter 的发布而变为可选。
 
 ## [1.0.0-rc.4] - 2026-09-03
 

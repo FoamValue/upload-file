@@ -9,7 +9,10 @@
 > Spring Boot 3/4 consumer (e.g. path-finder on JDK 26 / Spring Boot 4.1.1) cannot use them and is forced
 > into manual core wiring. rc.5 ships `-jakarta` twins that are drop-in source-compatible.
 >
-> ⏳ **Status: planned, not yet implemented.** Targeted at `1.0.0-rc.5`.
+> ✅ **Status: implemented and released in `1.0.0-rc.5`.** All tasks (T19–T24) are done: the
+> `upload-file-servlet-jakarta` / `upload-file-spring-boot-starter-jakarta` twins and
+> `example/upload-file-boot4-demo` are shipped under `1.0.0-rc.5`, and the javax artifacts are unchanged — see
+> the [Changelog](../CHANGELOG.md).
 
 ## 1. Goals & Scope
 

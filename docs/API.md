@@ -5,6 +5,14 @@
 Default Servlet mappings: `/upload`, `/download` (under Spring Boot they can be changed via
 `upload-file.upload-url` / `upload-file.download-url`). All responses are UTF-8.
 
+> **Which artifact serves this API?** The protocol below is identical across both servlet generations.
+> Spring Boot 2.x / Servlet 3/4 (`javax.servlet`) deployments use `upload-file-servlet` /
+> `upload-file-spring-boot-starter`; Spring Boot 3/4 / Tomcat 10+ (`jakarta.servlet`) deployments use the
+> drop-in twins `upload-file-servlet-jakarta` / `upload-file-spring-boot-starter-jakarta` (same FQCNs, same
+> `upload-file.*` properties — swap the Maven coordinate, change no code). A `javax` artifact and its
+> `-jakarta` twin must never share a classpath. Manual `upload-file-core` wiring (the rc.4 path-finder recipe)
+> exposes the same protocol on any stack. See the [README](../README.md) for coordinates and quick start.
+
 ## 0. Access Control (rc.3)
 
 When access control is enabled (`security.enabled=true` with a configured `security.token`), every
@@ -77,6 +85,9 @@ GET /upload?action=progress&identifier=<identifier>
 
 Same response shape as "Upload a Chunk". When the task does not exist, an empty progress is
 returned (`uploadedCount=0`) so the client can treat it as a brand-new upload.
+
+> Note (rc.6): this endpoint requires `action=progress`; a `GET /upload` without an `action`, or
+> with an unknown one, returns `400` (`MISSING_ACTION` / `UPLOAD_UNKNOWN_ACTION`).
 
 ## 3. Merge Chunks
 
@@ -169,6 +180,8 @@ Response `200`:
 
 Errors: `404` when the task does not exist, `409` while the async merge is `PENDING`/`RUNNING`
 (retry once it settles), `401` when access control is enabled and the token is missing/wrong.
+Since rc.6, `upload-file.http.cancel-not-found-status=200` maps the not-found case to an
+idempotent `200` (body stays truthful: `UploadResult.success=false`, message "Upload task not found").
 
 ## 4. Download (Resumable)
 
@@ -197,6 +210,33 @@ Responses:
 
 > Compatibility: content below 2 GB can be downloaded on a Servlet 3.0 container; range
 > responses above 2 GB use `setContentLengthLong`, which requires a Servlet 3.1+ container.
+
+> Note (rc.6): under the Spring Boot starter the download servlet is registered only when
+> `upload-file.endpoint.download-enabled=true` (off by default).
+
+## 5. Error Codes & Failure Bodies (rc.6)
+
+Every typed failure carries a stable symbolic code via `UploadErrorCode.code()` (catalog
+`UploadErrorCodes`), independent of the JSON body shape. The body shape is selected by
+`upload-file.http.error-body` (servlet init-param `http.error-body`):
+
+- `legacy` (default) – the rc.5 per-endpoint models (`UploadProgress.empty` /
+  `UploadResult.error` / `MergeStatus.none`);
+- `standard` – a uniform `UploadHttpError{code,status,message,identifier,action}`.
+
+| Code | Typical HTTP | Meaning |
+| --- | --- | --- |
+| `UPLOAD_VALIDATION` | 400 | invalid parameters, metadata disagreement, size limits, missing chunks on merge |
+| `UPLOAD_CHECKSUM` | 400 | chunk MD5 mismatch (only that chunk is rejected) |
+| `UPLOAD_NOT_FOUND` | 404 | task does not exist |
+| `UPLOAD_MERGE_CONFLICT` | 409 | merge-state conflict (chunk to a merged/in-flight task, cancel during async merge) |
+| `ACCESS_DENIED` | 401/403 | access-control rejection (status from the `AccessDecision`) |
+| `QUOTA_EXCEEDED` | 507 | exceeds the global capacity quota |
+| `MISSING_ACTION` | 400 | `GET /upload` without an `action` parameter (rc.6) |
+| `UPLOAD_UNKNOWN_ACTION` | 400 | `GET /upload` with an unknown `action` (rc.6) |
+| `MISSING_IDENTIFIER` | 400 | required `identifier` parameter missing |
+| `UPLOAD_SERVER_ERROR` | 500 | server-side failure (rc.6: no longer collapsed to 400) |
+| `RANGE_NOT_SATISFIABLE` | 416 | unsatisfiable `Range` |
 
 ## Suggested Client Flow (Resumable Upload)
 

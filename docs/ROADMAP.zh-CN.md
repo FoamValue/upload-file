@@ -7,7 +7,8 @@
 - P0 项（5 项）已在 **V1.0.0-rc.2** 实现（原始拆解见 [V1.0.0 任务开发计划](PLAN-V1.0.0-rc.2.zh-CN.md)）。
 - **V1.0.0-rc.3 生产就绪加固**（访问控制 / 多实例约束 / 大小配额 / 可观测 / 迁移工具 / compat 回归 / 1.0.0 范围定义）已排期，见 [V1.0.0-rc.3 任务开发计划](PLAN-V1.0.0-rc.3.zh-CN.md)。
 - **V1.0.0-rc.4（反馈驱动）已完成**：按 identifier 稳定读取（`getTask`）+ 显式取消（`cancelUpload` / `action=cancel`）、`UploadErrorCode` 稳定 HTTP 语义、清理与手工装配文档——见 [V1.0.0-rc.4 任务开发计划](PLAN-V1.0.0-rc.4.zh-CN.md)、[更新日志](../CHANGELOG.zh-CN.md)与 `doc/user-feedback/` 下的驱动反馈。
-- **V1.0.0-rc.5（jakarta 适配，反馈 P0-1）已排期**：官方 `-jakarta` servlet 模块与 Spring Boot **4.0.0+** starter，附 javax↔jakarta 文档——见 [V1.0.0-rc.5 任务开发计划](PLAN-V1.0.0-rc.5.zh-CN.md)。
+- **V1.0.0-rc.5（jakarta 适配，反馈 P0-1）已完成**：官方 `-jakarta` servlet 模块与 Spring Boot **4.0.0+** starter（无缝孪生版）及 Boot 4 演示——见 [V1.0.0-rc.5 任务开发计划](PLAN-V1.0.0-rc.5.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
+- **V1.0.0-rc.6（HTTP 层商业化可接入：安全与审计对齐）已完成**：端点注册可控（`/download` 默认关闭、纯 bean 模式）、`AccessControl` 增量式决策返回（`401`/`403` 可区分）+ 审计钩子与 `access-log`、符号错误码 + 可选的 `standard` 错误体、multipart 策略化、servlet 行为收敛，以及「自研 MVC 端点 → 官方 Servlet」迁移向导——见 [V1.0.0-rc.6 任务开发计划](PLAN-V1.0.0-rc.6.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
 - P1/P2 项排期待确认。
 
 ## 完整优化列表

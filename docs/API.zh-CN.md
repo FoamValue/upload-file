@@ -5,6 +5,13 @@
 默认 Servlet 映射：`/upload`、`/download`（Spring Boot 下可通过 `upload-file.upload-url` / `upload-file.download-url` 修改）。
 所有响应均为 UTF-8。
 
+> **用哪个产物提供本 API？** 下面的协议在两个 servlet 世代中完全一致。Spring Boot 2.x / Servlet 3/4
+> （`javax.servlet`）部署使用 `upload-file-servlet` / `upload-file-spring-boot-starter`；Spring Boot 3/4 /
+> Tomcat 10+（`jakarta.servlet`）部署使用其无缝孪生版 `upload-file-servlet-jakarta` /
+> `upload-file-spring-boot-starter-jakarta`（FQCN 与 `upload-file.*` 属性一致——只换 Maven 坐标，不改代码）。
+> `javax` 产物与其 `-jakarta` 孪生版不可同存于同一 classpath。手工装配 `upload-file-core`（rc.4 的
+> path-finder 配方）在任何技术栈上都暴露相同协议。坐标与快速开始见 [README](../README.zh-CN.md)。
+
 ## 0. 访问控制（rc.3）
 
 启用访问控制后（`security.enabled=true` 且配置了 `security.token`），所有接口都要求携带令牌：
@@ -74,6 +81,9 @@ GET /upload?action=progress&identifier=<identifier>
 ```
 
 响应同「上传分片」。任务不存在时返回空进度（`uploadedCount=0`），客户端可视为全新上传。
+
+> 说明（rc.6）：本端点要求 `action=progress`；`GET /upload` 缺失 `action` 或 action 未知时返回 `400`
+> （`MISSING_ACTION` / `UPLOAD_UNKNOWN_ACTION`）。
 
 ## 3. 合并分片
 
@@ -161,7 +171,8 @@ POST /upload?action=cancel&identifier=<identifier>
 ```
 
 错误：任务不存在返回 `404`；异步合并处于 `PENDING`/`RUNNING` 时返回 `409`（等待其结束后重试）；
-启用访问控制且令牌缺失/错误时返回 `401`。
+启用访问控制且令牌缺失/错误时返回 `401`。rc.6 起 `upload-file.http.cancel-not-found-status=200` 可将
+「任务不存在」映射为幂等 `200`（响应体仍如实：`UploadResult.success=false`、文案 "Upload task not found"）。
 
 ## 4. 下载（支持断点续传）
 
@@ -190,6 +201,32 @@ GET /download?identifier=<identifier>
 
 > 兼容性：小于 2GB 的内容在 Servlet 3.0 容器即可下载；大于 2GB 的区间响应使用
 > `setContentLengthLong`，需要 Servlet 3.1+ 容器。
+
+> 说明（rc.6）：Spring Boot starter 仅在 `upload-file.endpoint.download-enabled=true` 时注册下载 Servlet
+> （默认关闭）。
+
+## 5. 错误码与失败响应体（rc.6）
+
+每个类型化失败都经 `UploadErrorCode.code()` 携带稳定符号码（目录 `UploadErrorCodes`），与响应体形态无关。
+响应体形态由 `upload-file.http.error-body`（servlet init-param `http.error-body`）选择：
+
+- `legacy`（默认）—— rc.5 端点专用模型（`UploadProgress.empty` / `UploadResult.error` /
+  `MergeStatus.none`）；
+- `standard` —— 统一 `UploadHttpError{code,status,message,identifier,action}`。
+
+| 错误码 | 典型 HTTP | 含义 |
+| --- | --- | --- |
+| `UPLOAD_VALIDATION` | 400 | 参数非法、元数据不一致、大小超限、合并缺分片 |
+| `UPLOAD_CHECKSUM` | 400 | 分片 MD5 不匹配（仅拒该分片） |
+| `UPLOAD_NOT_FOUND` | 404 | 任务不存在 |
+| `UPLOAD_MERGE_CONFLICT` | 409 | 合并状态冲突（向已合并/合并中任务传分片、异步合并期间取消） |
+| `ACCESS_DENIED` | 401/403 | 访问被拒（状态码来自 `AccessDecision`） |
+| `QUOTA_EXCEEDED` | 507 | 超过全局容量配额 |
+| `MISSING_ACTION` | 400 | `GET /upload` 缺 `action` 参数（rc.6） |
+| `UPLOAD_UNKNOWN_ACTION` | 400 | `GET /upload` action 未知（rc.6） |
+| `MISSING_IDENTIFIER` | 400 | 缺少必填 `identifier` |
+| `UPLOAD_SERVER_ERROR` | 500 | 服务端故障（rc.6 起不再吞成 400） |
+| `RANGE_NOT_SATISFIABLE` | 416 | `Range` 不可满足 |
 
 ## 客户端建议流程（断点续传）
 

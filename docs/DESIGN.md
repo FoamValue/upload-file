@@ -42,10 +42,13 @@ and the two store modules are shared unchanged by both generations.
 | `ResumableDownloadService` | Locate the merged file and read a `Range` slice |
 | `StorageCleanupService` | Background TTL-based task expiry and opt-in orphan-data GC; exposes `CleanupStats`; coordinates multi-instance runs via an optional `CleanupLock` |
 | `IdentifierLock` | Fixed-size striped lock keyed by identifier, shared by upload and cleanup |
-| `AccessControl` (SPI) | Entry-point access checks (`PermitAllAccessControl` default, `TokenAccessControl` for shared tokens) |
+| `AccessControl` (SPI) | Entry-point access checks (`PermitAllAccessControl` default, `TokenAccessControl` for shared tokens); since rc.6 decision-based (`decide()` returning `AccessDecision`, legacy `check()` kept as a `@Deprecated` bridge) |
+| `AccessDecision` (rc.6) | Access-control decision result: allow, or deny with an explicit HTTP status (`401`/`403`) and reason |
+| `AccessControlListener` (rc.6) | Observes allow/deny (with decision elapsed time) at every service entry point, so MVC and Servlet paths share one audit hook |
 | `CleanupLock` (SPI) | Distributed lease lock so only one instance cleans at a time (`RedisCleanupLock` in the redis module) |
 | `TaskStoreMigrator` | Explicit, idempotent metadata migration between `TaskStore` implementations |
 | `CleanupStats` | Snapshot of a cleanup pass (counts, elapsed time, error) for observability |
+| `UploadErrorRenderer` / `UploadHttpError` (rc.6) | Failure-body shaping (`legacy` per-endpoint models or `standard` `UploadHttpError` + symbolic `UploadErrorCodes`) |
 | `UploadServlet` / `DownloadServlet` | HTTP integration; parse multipart / Range, extract the access token |
 | `UploadFileAutoConfiguration` | Spring Boot auto-wiring and Servlet registration |
 

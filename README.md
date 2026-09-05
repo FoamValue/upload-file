@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.5` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.6` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.5` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.6` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
@@ -59,7 +59,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.5</version>
+    <version>1.0.0-rc.6</version>
 </dependency>
 ```
 
@@ -69,7 +69,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.5</version>
+    <version>1.0.0-rc.6</version>
 </dependency>
 ```
 
@@ -89,12 +89,13 @@ upload-file:
 Available endpoints after startup:
 
 - `POST /upload` – upload one chunk
-- `GET /upload?action=progress&identifier=xxx` – query upload progress
+- `GET /upload?action=progress&identifier=xxx` – query upload progress (`GET /upload` requires a known `action` since rc.6)
 - `POST /upload?action=merge&identifier=xxx` – merge chunks
 - `POST /upload?action=mergeAsync&identifier=xxx` – submit an async merge (HTTP `202`), poll with `mergeStatus`
 - `GET /upload?action=mergeStatus&identifier=xxx` – query the async merge status
 - `POST /upload?action=cancel&identifier=xxx` – cancel a task and reclaim its data
-- `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download)
+- `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download). Registered only
+  when `upload-file.endpoint.download-enabled=true` (off by default since rc.6).
 
 > The auto-configuration is discovered through Spring Boot's `AutoConfiguration.imports` on Boot 3/4 and
 > through `spring.factories` on Boot 2.x. The servlet layer targets `javax.servlet` (Boot 2 / Servlet 3.1)
@@ -185,6 +186,13 @@ while an async merge is pending/running.
 | `upload-file.cleanup.use-redis-lock` | `false` | Use a Redis lease lock so only one instance runs cleanup |
 | `upload-file.observability.log-stats` | `true` | Log a structured cleanup-stats line after each pass |
 | `upload-file.migration.enabled` | `false` | Expose the `TaskStoreMigrator` bean (migration never runs automatically) |
+| `upload-file.endpoint.enabled` | `true` | Master endpoint switch (rc.6); `false` = beans-only (services wired, no servlet registered) |
+| `upload-file.endpoint.upload-enabled` | `true` | Register the upload servlet (rc.6) |
+| `upload-file.endpoint.download-enabled` | `false` | Register the download servlet (rc.6) — off by default (minimal exposure) |
+| `upload-file.http.error-body` | `legacy` | Failure body (rc.6): `legacy` (per-endpoint models) or `standard` (`UploadHttpError` + symbolic code) |
+| `upload-file.http.cancel-not-found-status` | `404` | Status for canceling a missing task (rc.6); `200` = idempotent reclaim |
+| `upload-file.multipart.strategy` | `component` | Multipart limits (rc.6): `component` / `spring` (follow `spring.servlet.multipart.*`) / `unlimited` |
+| `upload-file.observability.access-log` | `false` | Log one structured access-decision line per entry-point check (rc.6) |
 
 The dotted names above map to nested groups, so the same settings can be written in a grouped
 YAML form:
@@ -363,7 +371,7 @@ on a real Boot 4 (`jakarta`) runtime.
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.5.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.6.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
@@ -395,6 +403,7 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
 - [Changelog](CHANGELOG.md)
+- [V1.0.0-rc.6 Task Plan (commercial HTTP-layer adoption)](docs/PLAN-V1.0.0-rc.6.md)
 - [V1.0.0-rc.5 Task Plan (Spring Boot 4 / jakarta starter)](docs/PLAN-V1.0.0-rc.5.md)
 - [V1.0.0-rc.4 Task Plan (feedback-driven integration)](docs/PLAN-V1.0.0-rc.4.md)
 - [V1.0.0-rc.3 Task Plan (production hardening)](docs/PLAN-V1.0.0-rc.3.md)

@@ -39,10 +39,13 @@ upload-file（父 POM / 聚合器）
 | `ResumableDownloadService` | 定位合并文件，按 `Range` 区间读取 |
 | `StorageCleanupService` | 后台 TTL 过期任务清理与可选孤儿数据 GC；暴露 `CleanupStats`；通过可选 `CleanupLock` 协调多实例调度 |
 | `IdentifierLock` | 按 identifier 分片的定长锁，上传与清理服务共享 |
-| `AccessControl`（SPI） | 入口访问校验（默认 `PermitAllAccessControl`，共享令牌用 `TokenAccessControl`） |
+| `AccessControl`（SPI） | 入口访问校验（默认 `PermitAllAccessControl`，共享令牌用 `TokenAccessControl`）；rc.6 起决策式（`decide()` 返回 `AccessDecision`，旧 `check()` 保留为 `@Deprecated` 桥接） |
+| `AccessDecision`（rc.6） | 访问决策结果：放行，或带显式 HTTP 状态（`401`/`403`）与原因的拒绝 |
+| `AccessControlListener`（rc.6） | 在每个服务入口观测放行/拒绝（含决策耗时），使 MVC 与 Servlet 路径共享同一审计钩子 |
 | `CleanupLock`（SPI） | 分布式租约锁，保证同一时刻单实例清理（redis 模块提供 `RedisCleanupLock`） |
 | `TaskStoreMigrator` | 显式、幂等的 `TaskStore` 间元数据迁移 |
 | `CleanupStats` | 单次清理快照（条数、耗时、错误），用于可观测 |
+| `UploadErrorRenderer` / `UploadHttpError`（rc.6） | 失败响应体塑形（`legacy` 端点专用模型或 `standard` 的 `UploadHttpError` + 符号 `UploadErrorCodes`） |
 | `UploadServlet` / `DownloadServlet` | HTTP 接入，解析 multipart / Range，提取访问令牌 |
 | `UploadFileAutoConfiguration` | Spring Boot 自动装配并注册 Servlet |
 

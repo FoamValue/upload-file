@@ -7,14 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
-## [Unreleased]
+## [1.0.0-rc.6] - 2026-09-05
 
-### Planned
+**Commercial HTTP-layer adoption release (security & audit alignment).** Addresses the path-finder
+ADR-001/UPGRADE evaluation (the `-jakarta` artifacts were a drop-in for the javax starter, not for a
+"manual core wiring + hand-rolled MVC endpoints" integration). The official servlet/starter HTTP layer is now
+directly adoptable by commercial systems: controllable endpoints (incl. `/download` off by default), an
+additive decision-returning `AccessControl` with audit hooks, symbolic error codes + an optional uniform error
+body, and a configurable multipart strategy.
 
-- **`1.0.0-rc.5` — Spring Boot 4 / jakarta starter** (feedback P0-1): official `upload-file-servlet-jakarta`
-  (`jakarta.servlet`, Servlet 5/6) and `upload-file-spring-boot-starter-jakarta` (Spring Boot 4.0.0+, Boot 3.x
-  expected) as drop-in twins of the `javax` artifacts, plus a Boot 4 demo — see
+### Added
+
+- **Endpoint registration control** – `upload-file.endpoint.enabled` (default `true`; `false` = beans-only,
+  service beans wired without any servlet), `endpoint.upload-enabled` (default `true`) and
+  `endpoint.download-enabled` (**default `false`** — the download servlet is no longer registered unless
+  enabled). Both registration beans are overridable by a same-named bean.
+- **Decision-returning `AccessControl` (additive)** – new default `AccessControl.decide(...)` returning
+  `AccessDecision` (`allow()` / `deny(status, reason)`); the legacy `void check(...)` is kept `@Deprecated`
+  and bridged, so existing implementations compile and behave unchanged. `AccessDeniedException` carries an
+  optional status (default `401`), letting a host distinguish `401` from `403`.
+- **Audit hooks** – optional `AccessControlListener` SPI notified (allow/deny, with decision elapsed time) at
+  every entry point of the upload and download services; MVC and Servlet paths emit identical events. Built-in
+  structured access log behind `upload-file.observability.access-log` (default `false`).
+- **Symbolic error codes** – stable codes via `UploadErrorCode.code()` backed by the explicit
+  `UploadErrorCodes` catalog (always available; never derived from class names).
+- **Uniform error body (opt-in)** – `upload-file.http.error-body=standard` renders every failure as
+  `UploadHttpError{code,status,message,identifier,action}`; default `legacy` keeps the rc.5 per-endpoint
+  models byte-for-byte. `UploadErrorRenderer` SPI lets a host supply its own envelope.
+- **Configurable multipart strategy** – `upload-file.multipart.strategy` (`component` | `spring` |
+  `unlimited`, default `component` = rc.5 behaviour). `spring` follows `spring.servlet.multipart.*` /
+  `spring.http.multipart.*` (Boot defaults 1 MB / 10 MB); `unlimited` disables container limits.
+- **Optional cancel semantics** – `upload-file.http.cancel-not-found-status=200` treats canceling a missing
+  task as an idempotent `200` (default `404`).
+
+### Changed (breaking defaults, flagged)
+
+- `GET /upload` now requires a known `action`: a missing or unknown action returns `400`
+  (`MISSING_ACTION` / `UPLOAD_UNKNOWN_ACTION`) instead of being treated as *progress*.
+- Non-`UploadErrorCode` server faults (and non-`IllegalArgumentException` client errors) on merge/cancel/
+  status/progress return `500` instead of being collapsed to `400`. Merge size-mismatch and async-merge-not-
+  enabled are now typed `UploadValidationException` (`400`) with a stable code.
+- `/download` is not registered by default (see above) — set `upload-file.endpoint.download-enabled=true` to
+  restore it. Prominent note in README top.
+
+### Compatibility
+
+- `AccessControl` stays additive — Boot 2 / javax manual-wiring consumers need no code change in rc.6.
+- Everything else off-by-default; success bodies, existing properties and endpoints unchanged.
+- No data layout / disk format change; upgrade is restart-only.
+
+## [1.0.0-rc.5] - 2026-09-04
+
+**Jakarta / Spring Boot 4 release.** Removes the last top integration blocker from the consumer feedback
+(`doc/user-feedback/upload-file-usage-feedback.md`, item P0-1): the official servlet and starter artifacts were
+`javax.servlet`-based, so Spring Boot 3/4 consumers had to fall back to manual core wiring. rc.5 ships `-jakarta`
+twins that are source drop-ins (same FQCNs, same `upload-file.*` properties) plus a Boot 4 demo. Pure
+packaging-level addition — no core API or SPI change.
+
+### Added
+
+- **`upload-file-servlet-jakarta`** – Jakarta Servlet 5/6 (`jakarta.servlet`) twin of `upload-file-servlet`
+  (`UploadFileContext` / `UploadServlet` / `DownloadServlet`, identical FQCNs and behaviour — swap the Maven
+  coordinate, change no code).
+- **`upload-file-spring-boot-starter-jakarta`** – Spring Boot 4.0.0+ (Boot 3.x expected) twin of the starter:
+  identical FQCNs, `upload-file.*` property set and defaults; registered through Spring Boot's
+  `AutoConfiguration.imports` file instead of `spring.factories`. Drop-in for `upload-file-spring-boot-starter`.
+- **`example/upload-file-boot4-demo`** – Spring Boot 4.0.0+ demo built on the jakarta starter (JDK 17+), proving
+  the full resumable workflow (chunked upload → pause/resume → `mergeAsync`/`mergeStatus` → confirm via
+  `getTask(...).getFinalPath()` → Range download) plus `action=cancel` on a real Boot 4 runtime.
+- The Boot 2 demo (`example/upload-file-demo`) now also exercises async merge and `action=cancel`.
+
+### Changed
+
+- Version bumped to `1.0.0-rc.5`; the jakarta modules and the Boot 4 demo join the reactor. Reading Servlet 6 /
+  Boot 4 class files makes a **full root build require JDK 17+**; every artifact still targets bytecode
+  `--release 8`, and JDK-8 consumers build the javax subset with
+  `mvn install -pl upload-file-core,upload-file-servlet,upload-file-spring-boot-starter -am`.
+- README / docs/API / docs/DESIGN / docs/ROADMAP now document the javax↔jakarta artifact matrix, the Boot 4.0.0+
+  quickstart, the JDK-17 build baseline and the coordinate-swap upgrade path — see
   [V1.0.0-rc.5 Task Plan](docs/PLAN-V1.0.0-rc.5.md).
+
+### Compatibility
+
+- The `javax` artifacts (`upload-file-servlet`, `upload-file-spring-boot-starter`) are unchanged — Boot 2 /
+  Servlet 3.1 consumers keep their coordinates and behavior.
+- The `-jakarta` twins are drop-ins, but a `javax` artifact and its `-jakarta` twin must **never** be on the
+  same classpath — pick one.
+- No SPI / core API changes and no new `upload-file.*` properties in rc.5; manual core wiring on Boot 4 keeps
+  working and is now optional.
 
 ## [1.0.0-rc.4] - 2026-09-03
 

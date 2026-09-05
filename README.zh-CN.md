@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.5`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.6`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.5` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.6` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)
 
@@ -59,7 +59,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.5</version>
+    <version>1.0.0-rc.6</version>
 </dependency>
 ```
 
@@ -69,7 +69,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.5</version>
+    <version>1.0.0-rc.6</version>
 </dependency>
 ```
 
@@ -88,12 +88,13 @@ upload-file:
 启动后即可使用：
 
 - `POST /upload` 上传分片
-- `GET /upload?action=progress&identifier=xxx` 查询进度
+- `GET /upload?action=progress&identifier=xxx` 查询进度（rc.6 起 `GET /upload` 必须有已知 `action`）
 - `POST /upload?action=merge&identifier=xxx` 合并
 - `POST /upload?action=mergeAsync&identifier=xxx` 提交异步合并（HTTP `202`），用 `mergeStatus` 轮询
 - `GET /upload?action=mergeStatus&identifier=xxx` 查询异步合并状态
 - `POST /upload?action=cancel&identifier=xxx` 取消任务并回收其数据
-- `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）
+- `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）。仅当 `upload-file.endpoint.download-enabled=true`
+  时注册（rc.6 起默认关闭）。
 
 > Boot 3/4 通过 `AutoConfiguration.imports`、Boot 2.x 通过 `spring.factories` 发现自动配置；servlet 层依据
 > 所选产物面向 `javax.servlet`（Boot 2 / Servlet 3.1）或 `jakarta.servlet`（Boot 3/4 / Tomcat 10+）。
@@ -181,6 +182,13 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.cleanup.use-redis-lock` | `false` | 使用 Redis 租约锁，保证单实例执行清理 |
 | `upload-file.observability.log-stats` | `true` | 每次清理后输出结构化统计日志 |
 | `upload-file.migration.enabled` | `false` | 暴露 `TaskStoreMigrator` Bean（迁移从不自动执行） |
+| `upload-file.endpoint.enabled` | `true` | 端点总开关（rc.6）；`false` = 纯 bean 模式（只装配服务 Bean、不注册 Servlet） |
+| `upload-file.endpoint.upload-enabled` | `true` | 是否注册上传 Servlet（rc.6） |
+| `upload-file.endpoint.download-enabled` | `false` | 是否注册下载 Servlet（rc.6）——默认关闭（最小暴露面） |
+| `upload-file.http.error-body` | `legacy` | 失败响应体（rc.6）：`legacy`（端点专用模型）或 `standard`（`UploadHttpError` + 符号码） |
+| `upload-file.http.cancel-not-found-status` | `404` | 取消不存在任务的状态码（rc.6）；`200` = 幂等回收 |
+| `upload-file.multipart.strategy` | `component` | multipart 上限（rc.6）：`component` / `spring`（跟随 `spring.servlet.multipart.*`）/ `unlimited` |
+| `upload-file.observability.access-log` | `false` | 每个入口访问决策输出一行结构化日志（rc.6） |
 
 上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
 
@@ -349,7 +357,7 @@ mvn -pl example/upload-file-boot4-demo spring-boot:run
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.5.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.6.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
@@ -382,6 +390,7 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
+- [V1.0.0-rc.6 任务开发计划（HTTP 层商业化可接入）](docs/PLAN-V1.0.0-rc.6.zh-CN.md)
 - [V1.0.0-rc.5 任务开发计划（Spring Boot 4 / jakarta starter）](docs/PLAN-V1.0.0-rc.5.zh-CN.md)
 - [V1.0.0-rc.4 任务开发计划（反馈驱动集成优化）](docs/PLAN-V1.0.0-rc.4.zh-CN.md)
 - [V1.0.0-rc.3 任务开发计划（生产就绪加固）](docs/PLAN-V1.0.0-rc.3.zh-CN.md)
