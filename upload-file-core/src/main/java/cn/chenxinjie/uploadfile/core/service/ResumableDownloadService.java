@@ -6,8 +6,11 @@
 
 package cn.chenxinjie.uploadfile.core.service;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
+import cn.chenxinjie.uploadfile.core.security.AccessDecision;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.StringUtil;
@@ -21,6 +24,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * Core resumable-download service, reading byte ranges based on HTTP Range.
@@ -33,6 +37,10 @@ public class ResumableDownloadService {
     private final File mergedFileDir;
     private volatile AccessControl accessControl = PermitAllAccessControl.INSTANCE;
 
+    /** Access-decision observers (rc.6); notified before a denial is raised. */
+    private final CopyOnWriteArrayList<AccessControlListener> accessControlListeners =
+            new CopyOnWriteArrayList<>();
+
     public ResumableDownloadService(TaskStore taskStore, File mergedFileDir) {
         this.taskStore = Objects.requireNonNull(taskStore, "taskStore");
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
@@ -43,6 +51,29 @@ public class ResumableDownloadService {
      */
     public void setAccessControl(AccessControl accessControl) {
         this.accessControl = Objects.requireNonNull(accessControl, "accessControl");
+    }
+
+    /**
+     * Registers an access-decision listener (rc.6); see {@code ResumableUploadService#addAccessControlListener}.
+     */
+    public void addAccessControlListener(AccessControlListener listener) {
+        accessControlListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    /**
+     * Evaluates the access-control policy and notifies the registered listeners; throws
+     * {@link AccessDeniedException} carrying the decision status when the operation is denied.
+     */
+    private void gate(String identifier, String action, String token) {
+        long start = System.nanoTime();
+        AccessDecision decision = accessControl.decide(identifier, action, token);
+        long elapsed = System.nanoTime() - start;
+        for (AccessControlListener listener : accessControlListeners) {
+            listener.onDecision(identifier, action, decision, elapsed);
+        }
+        if (!decision.allowed()) {
+            throw new AccessDeniedException(decision.statusCode(), decision.reason());
+        }
     }
 
     /**
@@ -59,7 +90,7 @@ public class ResumableDownloadService {
         if (StringUtil.isBlank(identifier)) {
             return Optional.empty();
         }
-        accessControl.check(identifier, AccessControl.ACTION_DOWNLOAD, token);
+        gate(identifier, AccessControl.ACTION_DOWNLOAD, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         if (task == null) {
             return Optional.empty();
@@ -92,7 +123,7 @@ public class ResumableDownloadService {
      * Resolves the file name used for the download with an access token (see {@link AccessControl}).
      */
     public String resolveFileName(String identifier, String token) {
-        accessControl.check(identifier, AccessControl.ACTION_DOWNLOAD, token);
+        gate(identifier, AccessControl.ACTION_DOWNLOAD, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task != null && StringUtil.isNotBlank(task.getFileName()) ? task.getFileName() : identifier;
     }

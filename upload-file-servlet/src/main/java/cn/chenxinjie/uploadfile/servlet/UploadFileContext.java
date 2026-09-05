@@ -86,19 +86,25 @@ public final class UploadFileContext {
     private final StorageCleanupService cleanupService;
     private final ExecutorService asyncExecutor;
     private final String accessTokenHeader;
+    private final String httpErrorBody;
+    private final int cancelNotFoundStatus;
 
     public UploadFileContext(TaskStore taskStore,
                              ResumableUploadService uploadService,
                              ResumableDownloadService downloadService,
                              StorageCleanupService cleanupService,
                              ExecutorService asyncExecutor,
-                             String accessTokenHeader) {
+                             String accessTokenHeader,
+                             String httpErrorBody,
+                             int cancelNotFoundStatus) {
         this.taskStore = taskStore;
         this.uploadService = uploadService;
         this.downloadService = downloadService;
         this.cleanupService = cleanupService;
         this.asyncExecutor = asyncExecutor;
         this.accessTokenHeader = accessTokenHeader;
+        this.httpErrorBody = httpErrorBody;
+        this.cancelNotFoundStatus = cancelNotFoundStatus;
     }
 
     public static UploadFileContext getOrCreate(ServletContext servletContext, ServletConfig config) {
@@ -201,7 +207,7 @@ public final class UploadFileContext {
         }
 
         return new UploadFileContext(store, uploadService, downloadService, cleanupService, asyncExecutor,
-                config.securityHeaderName);
+                config.securityHeaderName, config.httpErrorBody, config.cancelNotFoundStatus);
     }
 
     private static TaskStore createStore(String metadataDir, Config config) {
@@ -248,6 +254,16 @@ public final class UploadFileContext {
         return accessTokenHeader;
     }
 
+    /** The configured failure-body mode: {@code legacy} (default) or {@code standard} (rc.6). */
+    public String getHttpErrorBody() {
+        return httpErrorBody;
+    }
+
+    /** The configured HTTP status for canceling a missing task (rc.6); {@code 404} default, {@code 200} = idempotent. */
+    public int getCancelNotFoundStatus() {
+        return cancelNotFoundStatus;
+    }
+
     /**
      * Parsed init-param settings for the rc.3 features; all defaults preserve rc.1 behavior.
      */
@@ -270,6 +286,8 @@ public final class UploadFileContext {
         public long quotaMaxBytes = 0;
         public boolean observabilityLogStats = true;
         public boolean cleanupUseRedisLock = false;
+        public String httpErrorBody = "legacy";
+        public int cancelNotFoundStatus = 404;
 
         public static Config fromInitParams(ServletConfig config) {
             Config c = new Config();
@@ -291,6 +309,8 @@ public final class UploadFileContext {
             c.quotaMaxBytes = longParam(config, "quota.max-bytes", c.quotaMaxBytes);
             c.observabilityLogStats = boolParam(config, "observability.log-stats", c.observabilityLogStats);
             c.cleanupUseRedisLock = boolParam(config, "cleanup.use-redis-lock", c.cleanupUseRedisLock);
+            c.httpErrorBody = initParam(config, "http.error-body", c.httpErrorBody);
+            c.cancelNotFoundStatus = intParam(config, "cancel-not-found-status", c.cancelNotFoundStatus);
             return c;
         }
 

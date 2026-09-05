@@ -6,8 +6,10 @@
 
 package cn.chenxinjie.uploadfile.springboot;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
@@ -33,6 +35,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 import org.springframework.context.annotation.Configuration;
 
 import javax.servlet.MultipartConfigElement;
@@ -44,6 +47,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
+import org.springframework.util.unit.DataSize;
 
 /**
  * Auto-wires the core services and registers the upload/download servlets.
@@ -55,6 +59,13 @@ import java.util.function.Consumer;
  * ({@code auto|memory|file|jdbc|redis}); {@code auto} reproduces the rc.1 behavior
  * (file when {@code metadata-dir} is set, otherwise memory). jdbc/redis fall back to
  * {@code auto} with a warning when the module/DataSource is missing.</p>
+ *
+ * <p>Endpoint registration is controllable since rc.6 (see {@code upload-file.endpoint.*}):
+ * {@code endpoint.enabled=false} is a beans-only mode (no servlet registered) and
+ * {@code endpoint.download-enabled} defaults to {@code false} (minimal exposure). Multipart
+ * limits follow {@code upload-file.multipart.strategy} ({@code component|spring|unlimited}).
+ * Access decisions are observable through {@link AccessControlListener} beans and an optional
+ * structured {@code observability.access-log}.</p>
  */
 @Configuration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
@@ -164,7 +175,8 @@ public class UploadFileAutoConfiguration {
                                                          UploadFileProperties properties,
                                                          IdentifierLock identifierLock,
                                                          AccessControl accessControl,
-                                                         ObjectProvider<ExecutorService> asyncExecutorProvider) {
+                                                         ObjectProvider<ExecutorService> asyncExecutorProvider,
+                                                         ObjectProvider<AccessControlListener> accessControlListeners) {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         ResumableUploadService service = new ResumableUploadService(
                 taskStore, chunkStorage, mergedDir,
@@ -183,6 +195,7 @@ public class UploadFileAutoConfiguration {
         if (asyncExecutor != null) {
             service.setAsyncExecutor(asyncExecutor);
         }
+        accessControlListeners.orderedStream().forEach(service::addAccessControlListener);
         return service;
     }
 
@@ -190,10 +203,12 @@ public class UploadFileAutoConfiguration {
     @ConditionalOnMissingBean
     public ResumableDownloadService resumableDownloadService(TaskStore taskStore,
                                                              UploadFileProperties properties,
-                                                             AccessControl accessControl) {
+                                                             AccessControl accessControl,
+                                                             ObjectProvider<AccessControlListener> accessControlListeners) {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         ResumableDownloadService service = new ResumableDownloadService(taskStore, mergedDir);
         service.setAccessControl(accessControl);
+        accessControlListeners.orderedStream().forEach(service::addAccessControlListener);
         return service;
     }
 
@@ -267,32 +282,115 @@ public class UploadFileAutoConfiguration {
         return Executors.newFixedThreadPool(properties.getAsyncMerge().getThreadPoolSize(), factory);
     }
 
+    /**
+     * Structured access-decision log (rc.6), active only when {@code observability.access-log=true}.
+     * Host-provided {@link AccessControlListener} beans are added in addition to this log.
+     */
     @Bean
-    public ServletRegistrationBean<UploadServlet> uploadFileServletRegistration(
-            ResumableUploadService uploadService, UploadFileProperties properties) {
-        UploadServlet servlet = new UploadServlet();
-        servlet.setUploadService(uploadService);
-        servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
-        ServletRegistrationBean<UploadServlet> registration =
-                new ServletRegistrationBean<>(servlet, properties.getUploadUrl());
-        registration.setName("uploadFileServlet");
-        registration.setLoadOnStartup(1);
-        registration.setMultipartConfig(new MultipartConfigElement(
-                null, properties.getMaxChunkSize(), properties.getMaxRequestSize(), 1024 * 1024));
-        return registration;
+    @ConditionalOnProperty(prefix = "upload-file", name = "observability.access-log", havingValue = "true")
+    public AccessControlListener uploadFileAccessLogListener() {
+        return (identifier, action, decision, elapsedNanos) -> {
+            double elapsedMs = elapsedNanos / 1_000_000.0;
+            if (decision.allowed()) {
+                LOG.info("upload-file access: action=" + action + ", identifier=" + identifier
+                        + ", decision=ALLOW, elapsedMs=" + elapsedMs);
+            } else {
+                LOG.warn("upload-file access: action=" + action + ", identifier=" + identifier
+                        + ", decision=DENY, status=" + decision.statusCode()
+                        + ", reason=" + decision.reason() + ", elapsedMs=" + elapsedMs);
+            }
+        };
     }
 
-    @Bean
-    public ServletRegistrationBean<DownloadServlet> downloadFileServletRegistration(
-            ResumableDownloadService downloadService, UploadFileProperties properties) {
-        DownloadServlet servlet = new DownloadServlet();
-        servlet.setDownloadService(downloadService);
-        servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
-        ServletRegistrationBean<DownloadServlet> registration =
-                new ServletRegistrationBean<>(servlet, properties.getDownloadUrl());
-        registration.setName("downloadFileServlet");
-        registration.setLoadOnStartup(1);
-        return registration;
+    /** Endpoint registration gate: {@code endpoint.enabled=false} = beans-only mode (rc.6). */
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "enabled", havingValue = "true", matchIfMissing = true)
+    public static class EndpointRegistrationConfiguration {
+
+        /** Registers the upload servlet unless {@code endpoint.upload-enabled=false} (rc.6). */
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "upload-enabled", havingValue = "true", matchIfMissing = true)
+        public static class UploadServletRegistrationConfiguration {
+
+            @Bean
+            @ConditionalOnMissingBean(name = "uploadFileServletRegistration")
+            public ServletRegistrationBean<UploadServlet> uploadFileServletRegistration(
+                    ResumableUploadService uploadService, UploadFileProperties properties,
+                    Environment environment) {
+                UploadServlet servlet = new UploadServlet();
+                servlet.setUploadService(uploadService);
+                servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
+                servlet.setErrorRenderer(UploadErrorRenderers.from(properties.getHttp().getErrorBody()));
+                servlet.setCancelNotFoundStatus(properties.getHttp().getCancelNotFoundStatus());
+                ServletRegistrationBean<UploadServlet> registration =
+                        new ServletRegistrationBean<>(servlet, properties.getUploadUrl());
+                registration.setName("uploadFileServlet");
+                registration.setLoadOnStartup(1);
+                registration.setMultipartConfig(multipartConfig(properties, environment));
+                return registration;
+            }
+        }
+
+        /** Registers the download servlet only when {@code endpoint.download-enabled=true} (rc.6, off by default). */
+        @Configuration(proxyBeanMethods = false)
+        @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "download-enabled", havingValue = "true")
+        public static class DownloadServletRegistrationConfiguration {
+
+            @Bean
+            @ConditionalOnMissingBean(name = "downloadFileServletRegistration")
+            public ServletRegistrationBean<DownloadServlet> downloadFileServletRegistration(
+                    ResumableDownloadService downloadService, UploadFileProperties properties) {
+                DownloadServlet servlet = new DownloadServlet();
+                servlet.setDownloadService(downloadService);
+                servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
+                ServletRegistrationBean<DownloadServlet> registration =
+                        new ServletRegistrationBean<>(servlet, properties.getDownloadUrl());
+                registration.setName("downloadFileServlet");
+                registration.setLoadOnStartup(1);
+                return registration;
+            }
+        }
+    }
+
+    /**
+     * Builds the servlet {@code @MultipartConfig} limits from {@code upload-file.multipart.strategy}
+     * (rc.6): {@code component} (rc.5 behaviour, from max-chunk/max-request), {@code spring}
+     * (follow {@code spring.servlet.multipart.*} / {@code spring.http.multipart.*}, Boot defaults
+     * 1 MB file / 10 MB request when unset) or {@code unlimited} (container limits off).
+     */
+    private static MultipartConfigElement multipartConfig(UploadFileProperties properties, Environment environment) {
+        String strategy = properties.getMultipart().getStrategy();
+        if ("spring".equalsIgnoreCase(strategy)) {
+            long maxFile = dataSizeBytes(environment,
+                    "spring.servlet.multipart.max-file-size", "spring.http.multipart.max-file-size", "1MB");
+            long maxRequest = dataSizeBytes(environment,
+                    "spring.servlet.multipart.max-request-size", "spring.http.multipart.max-request-size", "10MB");
+            int threshold = (int) Math.min(dataSizeBytes(environment,
+                    "spring.servlet.multipart.file-size-threshold",
+                    "spring.http.multipart.file-size-threshold", "0B"), Integer.MAX_VALUE);
+            return new MultipartConfigElement(null, maxFile, maxRequest, threshold);
+        }
+        if ("unlimited".equalsIgnoreCase(strategy)) {
+            return new MultipartConfigElement(null, -1, -1, 1024 * 1024);
+        }
+        return new MultipartConfigElement(
+                null, properties.getMaxChunkSize(), properties.getMaxRequestSize(), 1024 * 1024);
+    }
+
+    private static long dataSizeBytes(Environment environment, String... keysAndDefault) {
+        String fallback = keysAndDefault[keysAndDefault.length - 1];
+        for (int k = 0; k < keysAndDefault.length - 1; k++) {
+            String value = environment.getProperty(keysAndDefault[k]);
+            if (value != null && !value.trim().isEmpty()) {
+                try {
+                    return DataSize.parse(value.trim()).toBytes();
+                } catch (IllegalArgumentException ignored) {
+                    LOG.warn("Cannot parse multipart limit '" + value + "' for " + keysAndDefault[k]
+                            + "; using " + fallback);
+                }
+            }
+        }
+        return DataSize.parse(fallback).toBytes();
     }
 
     private static String requireMetadataDir(UploadFileProperties properties) {

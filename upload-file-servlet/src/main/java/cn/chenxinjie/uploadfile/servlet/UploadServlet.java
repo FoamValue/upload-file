@@ -6,14 +6,17 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderer;
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
-import cn.chenxinjie.uploadfile.core.exception.UploadErrorCode;
+import cn.chenxinjie.uploadfile.core.exception.UploadErrorCodes;
 import cn.chenxinjie.uploadfile.core.exception.UploadMergeConflictException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
+import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import com.google.gson.Gson;
 
@@ -37,13 +40,20 @@ import java.io.InputStream;
  *   <li>{@code POST /upload?action=merge&identifier=xxx}: merge chunks; returns {@link UploadResult} JSON</li>
  *   <li>{@code POST /upload?action=mergeAsync&identifier=xxx}: submit the merge asynchronously; returns {@link MergeStatus} JSON with HTTP 202</li>
  *   <li>{@code POST /upload?action=cancel&identifier=xxx}: cancel the task and reclaim its chunks/merged artifact; returns {@link UploadResult} JSON</li>
- *   <li>{@code GET /upload?action=mergeStatus&identifier=xxx}: query the async merge status; returns {@link MergeStatus} JSON</li>
  *   <li>{@code GET /upload?action=progress&identifier=xxx}: query progress; returns {@link UploadProgress} JSON</li>
+ *   <li>{@code GET /upload?action=mergeStatus&identifier=xxx}: query the async merge status; returns {@link MergeStatus} JSON</li>
  * </ul>
  *
- * <p>Failures are reported with the status code carried by the {@link cn.chenxinjie.uploadfile.core.exception.UploadErrorCode}
- * exceptions ({@code 400} validation/checksum, {@code 401} access denied, {@code 404} task not found,
- * {@code 409} merge-state conflict, {@code 507} quota) and a JSON body.</p>
+ * <p>Behaviour notes since rc.6:</p>
+ * <ul>
+ *   <li>{@code GET /upload} requires a known {@code action}; a missing or unknown action returns {@code 400};</li>
+ *   <li>failures whose exception is not an {@code UploadErrorCode} (and not a raw
+ *       {@code IllegalArgumentException}) are reported as {@code 500} instead of being collapsed to {@code 400};</li>
+ *   <li>the failure body is chosen by the {@code http.error-body} setting: {@code legacy} (default, the
+ *       rc.5 per-endpoint models) or {@code standard} ({@code UploadHttpError} + symbolic code);</li>
+ *   <li>{@code cancel} on a missing task returns {@code 404} by default, or {@code 200} when
+ *       {@code cancel-not-found-status=200} is configured (idempotent reclaim).</li>
+ * </ul>
  *
  * <p>The service can be injected via a setter, or the default implementation can be used by
  * providing {@code storage-dir} / {@code metadata-dir} init-params in web.xml or
@@ -64,6 +74,12 @@ public class UploadServlet extends HttpServlet {
     /** Name of the header carrying the access token; a {@code token} query param is also accepted. */
     private volatile String accessTokenHeader = "X-Access-Token";
 
+    /** Failure-body renderer (rc.6); {@code legacy} by default. */
+    private volatile UploadErrorRenderer errorRenderer = UploadErrorRenderers.legacy();
+
+    /** HTTP status for canceling a missing task; {@code 404} by default, {@code 200} = idempotent. */
+    private volatile int cancelNotFoundStatus = 404;
+
     public void setUploadService(ResumableUploadService uploadService) {
         this.uploadService = uploadService;
     }
@@ -78,6 +94,16 @@ public class UploadServlet extends HttpServlet {
         }
     }
 
+    public void setErrorRenderer(UploadErrorRenderer errorRenderer) {
+        if (errorRenderer != null) {
+            this.errorRenderer = errorRenderer;
+        }
+    }
+
+    public void setCancelNotFoundStatus(int cancelNotFoundStatus) {
+        this.cancelNotFoundStatus = cancelNotFoundStatus;
+    }
+
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
@@ -85,6 +111,8 @@ public class UploadServlet extends HttpServlet {
             UploadFileContext context = UploadFileContext.getOrCreate(config.getServletContext(), config);
             uploadService = context.getUploadService();
             accessTokenHeader = context.getAccessTokenHeader();
+            setErrorRenderer(UploadErrorRenderers.from(context.getHttpErrorBody()));
+            setCancelNotFoundStatus(context.getCancelNotFoundStatus());
         }
     }
 
@@ -100,10 +128,19 @@ public class UploadServlet extends HttpServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
-        if ("mergeStatus".equals(req.getParameter("action"))) {
+        String action = param(req, "action");
+        if (action == null || action.trim().isEmpty()) {
+            writeError(resp, AccessControl.ACTION_PROGRESS, param(req, "identifier"), 400,
+                    UploadErrorCodes.MISSING_ACTION, "action is required");
+            return;
+        }
+        if ("mergeStatus".equals(action)) {
             doMergeStatus(req, resp);
-        } else {
+        } else if ("progress".equals(action)) {
             doProgress(req, resp);
+        } else {
+            writeError(resp, AccessControl.ACTION_PROGRESS, param(req, "identifier"), 400,
+                    UploadErrorCodes.UPLOAD_UNKNOWN_ACTION, "unsupported action: " + action);
         }
     }
 
@@ -139,23 +176,22 @@ public class UploadServlet extends HttpServlet {
         try {
             part = req.getPart("file");
         } catch (ServletException | IllegalStateException e) {
-            writeJson(resp, 400, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
+            writeError(resp, AccessControl.ACTION_UPLOAD, chunkRequest.getIdentifier(), 400,
+                    UploadErrorCodes.UPLOAD_VALIDATION, "file part is required");
             return;
         }
         if (part == null) {
-            writeJson(resp, 400, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
+            writeError(resp, AccessControl.ACTION_UPLOAD, chunkRequest.getIdentifier(), 400,
+                    UploadErrorCodes.UPLOAD_VALIDATION, "file part is required");
             return;
         }
         // Stream the chunk body straight into the storage layer, then return the current progress.
         try (InputStream in = part.getInputStream()) {
             UploadProgress progress = uploadService.uploadChunk(chunkRequest, token(req), in);
             writeJson(resp, 200, gson.toJson(progress));
-        } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
-        } catch (QuotaExceededException e) {
-            writeJson(resp, 507, gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
         } catch (Exception e) {
-            writeJson(resp, statusOf(e), gson.toJson(UploadProgress.empty(chunkRequest.getIdentifier())));
+            writeError(resp, AccessControl.ACTION_UPLOAD, chunkRequest.getIdentifier(),
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), "Upload failed");
         }
     }
 
@@ -164,40 +200,39 @@ public class UploadServlet extends HttpServlet {
         try {
             UploadResult result = uploadService.merge(identifier, token(req));
             writeJson(resp, result.isSuccess() ? 200 : 400, gson.toJson(result));
-        } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(UploadResult.error(identifier, "Access denied")));
-        } catch (QuotaExceededException e) {
-            writeJson(resp, 507, gson.toJson(UploadResult.error(identifier, "Storage quota exceeded")));
         } catch (Exception e) {
             // Log the details server-side but return a generic message so internal paths
             // and implementation details are never exposed to the client.
             LOG.log(java.util.logging.Level.WARNING, "Merge failed for identifier: " + identifier, e);
-            writeJson(resp, statusOf(e), gson.toJson(UploadResult.error(identifier, "Merge failed")));
+            writeError(resp, AccessControl.ACTION_MERGE, identifier,
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), mergeMessage(e));
         }
     }
 
-    /**
-     * Maps a core failure to a stable HTTP status: exceptions implementing
-     * {@link UploadErrorCode} report their own code; everything else is a client error
-     * ({@code 400}) on these upload endpoints.
-     */
-    private static int statusOf(Exception e) {
-        if (e instanceof UploadErrorCode) {
-            return ((UploadErrorCode) e).getHttpStatusCode();
+    private static String mergeMessage(Exception e) {
+        if (e instanceof AccessDeniedException) {
+            return "Access denied";
         }
-        return 400;
+        if (e instanceof QuotaExceededException) {
+            return "Storage quota exceeded";
+        }
+        return "Merge failed";
     }
 
     private void doCancel(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String identifier = param(req, "identifier");
         if (identifier == null || identifier.trim().isEmpty()) {
-            writeJson(resp, 400, gson.toJson(UploadResult.error(null, "identifier is required")));
+            writeError(resp, AccessControl.ACTION_CANCEL, null, 400,
+                    UploadErrorCodes.MISSING_IDENTIFIER, "identifier is required");
             return;
         }
         try {
             boolean removed = uploadService.cancelUpload(identifier, token(req));
             if (!removed) {
-                writeJson(resp, 404, gson.toJson(UploadResult.error(identifier, "Upload task not found")));
+                // Default: strict 404. Optional 200 = idempotent reclaim (nothing to cancel is fine).
+                int status = cancelNotFoundStatus == 200 ? 200 : 404;
+                writeError(resp, AccessControl.ACTION_CANCEL, identifier, status,
+                        UploadErrorCodes.UPLOAD_NOT_FOUND, "Upload task not found");
                 return;
             }
             UploadResult result = new UploadResult();
@@ -206,12 +241,15 @@ public class UploadServlet extends HttpServlet {
             result.setIdentifier(identifier);
             writeJson(resp, 200, gson.toJson(result));
         } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(UploadResult.error(identifier, "Access denied")));
+            writeError(resp, AccessControl.ACTION_CANCEL, identifier, e.getStatusCode(),
+                    UploadErrorCodes.ACCESS_DENIED, "Access denied");
         } catch (UploadMergeConflictException e) {
             // Generic message: an async merge is pending/running; internal state is not exposed.
-            writeJson(resp, 409, gson.toJson(UploadResult.error(identifier, "Async merge in progress")));
+            writeError(resp, AccessControl.ACTION_CANCEL, identifier, 409,
+                    UploadErrorCodes.UPLOAD_MERGE_CONFLICT, "Async merge in progress");
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(UploadResult.error(identifier, "Cancel failed")));
+            writeError(resp, AccessControl.ACTION_CANCEL, identifier,
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), "Cancel failed");
         }
     }
 
@@ -221,42 +259,56 @@ public class UploadServlet extends HttpServlet {
             MergeStatus status = uploadService.submitMerge(identifier, token(req));
             writeJson(resp, 202, gson.toJson(status));
         } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(MergeStatus.none(identifier)));
+            writeError(resp, AccessControl.ACTION_MERGE_ASYNC, identifier, e.getStatusCode(),
+                    UploadErrorCodes.ACCESS_DENIED, "Access denied");
         } catch (Exception e) {
-            writeJson(resp, statusOf(e), gson.toJson(MergeStatus.none(identifier)));
+            writeError(resp, AccessControl.ACTION_MERGE_ASYNC, identifier,
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), "Async merge failed");
         }
     }
 
     private void doMergeStatus(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = param(req, "identifier");
         if (identifier == null || identifier.trim().isEmpty()) {
-            writeJson(resp, 400, gson.toJson(MergeStatus.none(null)));
+            writeError(resp, AccessControl.ACTION_MERGE_STATUS, null, 400,
+                    UploadErrorCodes.MISSING_IDENTIFIER, "identifier is required");
             return;
         }
         try {
             MergeStatus status = uploadService.getMergeStatus(identifier, token(req));
             writeJson(resp, 200, gson.toJson(status));
         } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(MergeStatus.none(identifier)));
+            writeError(resp, AccessControl.ACTION_MERGE_STATUS, identifier, e.getStatusCode(),
+                    UploadErrorCodes.ACCESS_DENIED, "Access denied");
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(MergeStatus.none(identifier)));
+            writeError(resp, AccessControl.ACTION_MERGE_STATUS, identifier,
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), "Query merge status failed");
         }
     }
 
     private void doProgress(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = param(req, "identifier");
         if (identifier == null || identifier.trim().isEmpty()) {
-            writeJson(resp, 400, gson.toJson(UploadProgress.empty(null)));
+            writeError(resp, AccessControl.ACTION_PROGRESS, null, 400,
+                    UploadErrorCodes.MISSING_IDENTIFIER, "identifier is required");
             return;
         }
         try {
             UploadProgress progress = uploadService.getProgress(identifier, token(req));
             writeJson(resp, 200, gson.toJson(progress));
         } catch (AccessDeniedException e) {
-            writeJson(resp, 401, gson.toJson(UploadProgress.empty(identifier)));
+            writeError(resp, AccessControl.ACTION_PROGRESS, identifier, e.getStatusCode(),
+                    UploadErrorCodes.ACCESS_DENIED, "Access denied");
         } catch (Exception e) {
-            writeJson(resp, 400, gson.toJson(UploadProgress.empty(identifier)));
+            writeError(resp, AccessControl.ACTION_PROGRESS, identifier,
+                    UploadErrorRenderers.statusOf(e), UploadErrorRenderers.codeOf(e), "Query progress failed");
         }
+    }
+
+    private void writeError(HttpServletResponse resp, String action, String identifier,
+                            int status, String code, String message) throws IOException {
+        Object body = errorRenderer.render(action, identifier, status, code, message);
+        writeJson(resp, status, gson.toJson(body));
     }
 
     private void writeJson(HttpServletResponse resp, int status, String json) throws IOException {

@@ -21,6 +21,23 @@ upload-file:
     enabled: true
     thread-pool-size: 2
 
+  # --- rc.6 commercial-wiring example (security & audit alignment) ---
+  # Endpoints: download is OFF by default now; this demo enables it explicitly.
+  endpoint:
+    upload-enabled: true
+    download-enabled: true
+  # Uniform failure body with a stable symbolic code (UploadHttpError) instead of the legacy
+  # per-endpoint empty models.
+  http:
+    error-body: standard
+    # cancel-not-found-status: 200      # optional: treat canceling a missing task as an idempotent 200
+  # Structured access-decision log (one line per allow/deny on every entry point).
+  observability:
+    access-log: true
+  # For a real owner check (401 vs 403) define an AccessControl bean that overrides decide(...)
+  # and returns AccessDecision.deny(403, reason) on an ownership mismatch (see docs/PLAN rc.6);
+  # an AccessControlListener bean can write your own audit rows.
+
   # --- rc.3 production-hardening examples (commented out, keep defaults to stay open) ---
   # Optional access control: enable + a token, then every endpoint requires the token
   # in the "X-Access-Token" header (or a "token" query param).

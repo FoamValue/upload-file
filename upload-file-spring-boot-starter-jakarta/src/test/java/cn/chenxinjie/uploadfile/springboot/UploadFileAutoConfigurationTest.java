@@ -61,14 +61,12 @@ class UploadFileAutoConfigurationTest {
     }
 
     @Test
-    void servletRegistrationsExist() {
+    void uploadServletRegisteredByDefault() {
+        // rc.6: the download servlet is off by default (endpoint.download-enabled=false); the upload servlet stays.
         ServletRegistrationBean<?> upload = (ServletRegistrationBean<?>) context.getBean("uploadFileServletRegistration");
-        ServletRegistrationBean<?> download = (ServletRegistrationBean<?>) context.getBean("downloadFileServletRegistration");
         assertNotNull(upload);
-        assertNotNull(download);
         assertTrue(upload.getServlet() instanceof UploadServlet);
-        assertTrue(download.getServlet() instanceof DownloadServlet);
         assertTrue(upload.getUrlMappings().contains("/upload"));
-        assertTrue(download.getUrlMappings().contains("/download"));
+        org.junit.jupiter.api.Assertions.assertFalse(context.containsBean("downloadFileServletRegistration"));
     }
 }

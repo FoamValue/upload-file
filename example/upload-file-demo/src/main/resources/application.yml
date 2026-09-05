@@ -21,6 +21,12 @@ upload-file:
     enabled: true
     thread-pool-size: 2
 
+  # rc.6 endpoint registration: download is OFF by default now — this demo needs it for the
+  # resumable-download page, so it is explicitly enabled.
+  endpoint:
+    upload-enabled: true
+    download-enabled: true
+
   # --- rc.3 production-hardening examples (commented out, keep defaults to stay open) ---
   # Optional access control: enable + a token, then every endpoint requires the token
   # in the "X-Access-Token" header (or a "token" query param).

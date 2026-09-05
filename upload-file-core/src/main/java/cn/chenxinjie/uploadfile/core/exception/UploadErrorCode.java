@@ -24,4 +24,14 @@ public interface UploadErrorCode {
      * Returns the HTTP status code the failure should be reported with.
      */
     int getHttpStatusCode();
+
+    /**
+     * Returns a stable symbolic code from the {@link UploadErrorCodes} catalog (rc.6).
+     *
+     * <p>Codes are explicit catalog constants, never derived from the class name, so they do not
+     * drift across renames. The default resolves through {@link UploadErrorCodes#codeOf}.</p>
+     */
+    default String code() {
+        return UploadErrorCodes.codeOf(this);
+    }
 }

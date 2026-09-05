@@ -107,6 +107,7 @@ public class UploadServletTest {
         servlet.doPost(request, new MockHttpServletResponse());
 
         MockHttpServletRequest progressRequest = new MockHttpServletRequest();
+        progressRequest.setParameter("action", "progress");
         progressRequest.setParameter("identifier", IDENTIFIER);
         MockHttpServletResponse progressResponse = new MockHttpServletResponse();
 
@@ -126,8 +127,10 @@ public class UploadServletTest {
 
     @Test
     public void missingIdentifierOnProgressReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("action", "progress");
         MockHttpServletResponse response = new MockHttpServletResponse();
-        servlet.doGet(new MockHttpServletRequest(), response);
+        servlet.doGet(request, response);
         assertEquals(400, response.getStatus());
     }
 
@@ -293,6 +296,7 @@ public class UploadServletTest {
     @Test
     public void progressUnsafeIdentifierReturns400() throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("action", "progress");
         request.setParameter("identifier", "../evil");
         MockHttpServletResponse response = new MockHttpServletResponse();
         servlet.doGet(request, response);
@@ -379,6 +383,7 @@ public class UploadServletTest {
     public void securityRejectsProgressWithoutToken() throws Exception {
         UploadServlet secured = securedServlet("srv-secret");
         MockHttpServletRequest progress = new MockHttpServletRequest();
+        progress.setParameter("action", "progress");
         progress.setParameter("identifier", "sec4");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
@@ -579,7 +584,7 @@ public class UploadServletTest {
     }
 
     @Test
-    public void cancelServiceFailureReturnsGeneric400() throws Exception {
+    public void cancelServiceFailureReturns500() throws Exception {
         UploadServlet failing = new UploadServlet();
         failing.setUploadService(new ErroringUploadService(folder.getRoot().getAbsolutePath()));
 
@@ -590,7 +595,8 @@ public class UploadServletTest {
 
         failing.doPost(cancelRequest, response);
 
-        assertEquals(400, response.getStatus());
+        // rc.6: a non-UploadErrorCode server fault is a 500, not a 400.
+        assertEquals(500, response.getStatus());
         UploadResult result = new Gson().fromJson(response.getContentAsString(), UploadResult.class);
         assertEquals("Cancel failed", result.getMessage());
     }
@@ -633,6 +639,59 @@ public class UploadServletTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         secured.doPost(request, response);
+
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void missingActionOnGetReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void unknownActionOnGetReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("action", "bogus");
+        request.setParameter("identifier", IDENTIFIER);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(request, response);
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void standardErrorBodyWhenConfigured() throws Exception {
+        UploadServlet std = new UploadServlet();
+        std.setUploadService(uploadService);
+        std.setErrorRenderer(cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers.standard());
+
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", "no-such-task");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        std.doPost(cancelRequest, response);
+
+        assertEquals(404, response.getStatus());
+        cn.chenxinjie.uploadfile.core.model.UploadHttpError body = new Gson().fromJson(
+                response.getContentAsString(), cn.chenxinjie.uploadfile.core.model.UploadHttpError.class);
+        assertEquals(cn.chenxinjie.uploadfile.core.exception.UploadErrorCodes.UPLOAD_NOT_FOUND, body.getCode());
+        assertEquals("cancel", body.getAction());
+    }
+
+    @Test
+    public void cancelNotFoundReturns200WhenConfigured() throws Exception {
+        UploadServlet servlet = new UploadServlet();
+        servlet.setUploadService(uploadService);
+        servlet.setCancelNotFoundStatus(200);
+
+        MockHttpServletRequest cancelRequest = new MockHttpServletRequest();
+        cancelRequest.setParameter("action", "cancel");
+        cancelRequest.setParameter("identifier", "no-such-task");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doPost(cancelRequest, response);
 
         assertEquals(200, response.getStatus());
     }

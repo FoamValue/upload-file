@@ -89,7 +89,8 @@ public class DownloadServlet extends HttpServlet {
         try {
             fileOpt = downloadService.resolveFile(identifier, token);
         } catch (AccessDeniedException e) {
-            resp.sendError(401, "Access denied");
+            // rc.6: honor the decision status (401 unauthenticated / 403 forbidden).
+            resp.sendError(e.getStatusCode(), "Access denied");
             return;
         }
         if (!fileOpt.isPresent()) {

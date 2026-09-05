@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.core.service;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
 import cn.chenxinjie.uploadfile.core.exception.UploadMergeConflictException;
@@ -17,6 +18,8 @@ import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
+import cn.chenxinjie.uploadfile.core.security.AccessDecision;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
@@ -40,6 +43,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.stream.Stream;
 
@@ -63,6 +67,10 @@ public class ResumableUploadService {
     private final boolean mergeAtomic;
     private final IdentifierLock identifierLock;
     private volatile AccessControl accessControl;
+
+    /** Access-decision observers (rc.6); notified before a denial is raised. */
+    private final CopyOnWriteArrayList<AccessControlListener> accessControlListeners =
+            new CopyOnWriteArrayList<>();
 
     /** Maximum bytes accepted for a single chunk; 0 or negative means unlimited. */
     private volatile long maxChunkBytes;
@@ -121,6 +129,31 @@ public class ResumableUploadService {
      */
     public void setAccessControl(AccessControl accessControl) {
         this.accessControl = accessControl;
+    }
+
+    /**
+     * Registers an access-decision listener (rc.6). Listeners observe allow/deny on every entry
+     * point; denial events are emitted before the {@link AccessDeniedException} is raised, so both
+     * the MVC (service) and Servlet paths see the same events.
+     */
+    public void addAccessControlListener(AccessControlListener listener) {
+        accessControlListeners.add(Objects.requireNonNull(listener, "listener"));
+    }
+
+    /**
+     * Evaluates the access-control policy and notifies the registered listeners; throws
+     * {@link AccessDeniedException} carrying the decision status when the operation is denied.
+     */
+    private void gate(String identifier, String action, String token) {
+        long start = System.nanoTime();
+        AccessDecision decision = accessControl.decide(identifier, action, token);
+        long elapsed = System.nanoTime() - start;
+        for (AccessControlListener listener : accessControlListeners) {
+            listener.onDecision(identifier, action, decision, elapsed);
+        }
+        if (!decision.allowed()) {
+            throw new AccessDeniedException(decision.statusCode(), decision.reason());
+        }
     }
 
     /**
@@ -187,7 +220,7 @@ public class ResumableUploadService {
         Objects.requireNonNull(request, "request");
         Objects.requireNonNull(in, "inputStream");
         String identifier = StringUtil.requireSafeIdentifier(request.getIdentifier());
-        accessControl.check(identifier, AccessControl.ACTION_UPLOAD, token);
+        gate(identifier, AccessControl.ACTION_UPLOAD, token);
         int chunkIndex = request.getChunkIndex();
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
@@ -297,7 +330,7 @@ public class ResumableUploadService {
      */
     public UploadProgress getProgress(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
-        accessControl.check(identifier, AccessControl.ACTION_PROGRESS, token);
+        gate(identifier, AccessControl.ACTION_PROGRESS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? UploadProgress.empty(identifier) : UploadProgress.from(task);
     }
@@ -344,7 +377,7 @@ public class ResumableUploadService {
      */
     public UploadResult merge(String identifier, String token) throws IOException {
         StringUtil.requireSafeIdentifier(identifier);
-        accessControl.check(identifier, AccessControl.ACTION_MERGE, token);
+        gate(identifier, AccessControl.ACTION_MERGE, token);
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
@@ -386,7 +419,7 @@ public class ResumableUploadService {
                 if (task.getFileSize() > 0 && size != task.getFileSize()) {
                     // Guard against data loss: if the size does not match the declared one, discard the result.
                     Files.deleteIfExists(writeTarget);
-                    throw new IllegalStateException("Merged file size mismatch, expected "
+                    throw new UploadValidationException("Merged file size mismatch, expected "
                             + task.getFileSize() + ", actual " + size + " (" + identifier + ")");
                 }
                 if (mergeAtomic) {
@@ -431,9 +464,9 @@ public class ResumableUploadService {
      */
     public MergeStatus submitMerge(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
-        accessControl.check(identifier, AccessControl.ACTION_MERGE_ASYNC, token);
+        gate(identifier, AccessControl.ACTION_MERGE_ASYNC, token);
         if (asyncExecutor == null) {
-            throw new IllegalStateException("Async merge is not enabled");
+            throw new UploadValidationException("Async merge is not enabled");
         }
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
@@ -476,7 +509,7 @@ public class ResumableUploadService {
      */
     public MergeStatus getMergeStatus(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
-        accessControl.check(identifier, AccessControl.ACTION_MERGE_STATUS, token);
+        gate(identifier, AccessControl.ACTION_MERGE_STATUS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task == null ? MergeStatus.none(identifier) : MergeStatus.from(task);
     }
@@ -503,7 +536,7 @@ public class ResumableUploadService {
      */
     public boolean cancelUpload(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
-        accessControl.check(identifier, AccessControl.ACTION_CANCEL, token);
+        gate(identifier, AccessControl.ACTION_CANCEL, token);
         synchronized (lockFor(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {

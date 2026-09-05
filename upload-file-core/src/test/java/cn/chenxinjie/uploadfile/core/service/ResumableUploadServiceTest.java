@@ -9,6 +9,7 @@ package cn.chenxinjie.uploadfile.core.service;
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
+import cn.chenxinjie.uploadfile.core.exception.UploadValidationException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
@@ -268,7 +269,7 @@ public class ResumableUploadServiceTest {
         task.setFileSize(CHUNK_SIZE + 1); // declare a wrong size to force a rollback
         service.getTaskStore().save(task);
 
-        assertThrows(IllegalStateException.class, () -> service.merge("a2"));
+        assertThrows(UploadValidationException.class, () -> service.merge("a2"));
 
         File taskDir = new File(mergedDir, "a2");
         assertTrue(taskDir.isDirectory());
@@ -297,7 +298,8 @@ public class ResumableUploadServiceTest {
     public void submitMergeWithoutAsyncFails() throws Exception {
         byte[] chunk = new byte[CHUNK_SIZE];
         service.uploadChunk(request("c1", 0, 1), new ByteArrayInputStream(chunk));
-        assertThrows(IllegalStateException.class, () -> service.submitMerge("c1"));
+        // rc.6: async-merge-not-enabled is a client error with a stable code.
+        assertThrows(UploadValidationException.class, () -> service.submitMerge("c1"));
     }
 
     @Test

@@ -59,6 +59,15 @@ public class UploadFileProperties {
     /** Async merge settings. */
     private final AsyncMerge asyncMerge = new AsyncMerge();
 
+    /** Endpoint registration control (rc.6). */
+    private final Endpoint endpoint = new Endpoint();
+
+    /** HTTP failure-body and cancel semantics (rc.6). */
+    private final Http http = new Http();
+
+    /** Multipart strategy (rc.6). */
+    private final Multipart multipart = new Multipart();
+
     /** Access-control settings. */
     private final Security security = new Security();
 
@@ -159,6 +168,18 @@ public class UploadFileProperties {
 
     public AsyncMerge getAsyncMerge() {
         return asyncMerge;
+    }
+
+    public Endpoint getEndpoint() {
+        return endpoint;
+    }
+
+    public Http getHttp() {
+        return http;
+    }
+
+    public Multipart getMultipart() {
+        return multipart;
     }
 
     public Security getSecurity() {
@@ -336,12 +357,99 @@ public class UploadFileProperties {
         /** Whether to log a structured cleanup-stats line after each cleanup pass (rc.3). */
         private boolean logStats = true;
 
+        /** Whether to log a structured access-decision line per entry-point check (rc.6). */
+        private boolean accessLog = false;
+
         public boolean isLogStats() {
             return logStats;
         }
 
         public void setLogStats(boolean logStats) {
             this.logStats = logStats;
+        }
+
+        public boolean isAccessLog() {
+            return accessLog;
+        }
+
+        public void setAccessLog(boolean accessLog) {
+            this.accessLog = accessLog;
+        }
+    }
+
+    /** {@code upload-file.endpoint.*} */
+    public static class Endpoint {
+        /** Master switch; {@code false} = beans-only (service beans wired, no servlet registered) (rc.6). */
+        private boolean enabled = true;
+
+        /** Whether to register the upload servlet (rc.6). */
+        private boolean uploadEnabled = true;
+
+        /** Whether to register the download servlet (rc.6). Default off = minimal exposure. */
+        private boolean downloadEnabled = false;
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public void setEnabled(boolean enabled) {
+            this.enabled = enabled;
+        }
+
+        public boolean isUploadEnabled() {
+            return uploadEnabled;
+        }
+
+        public void setUploadEnabled(boolean uploadEnabled) {
+            this.uploadEnabled = uploadEnabled;
+        }
+
+        public boolean isDownloadEnabled() {
+            return downloadEnabled;
+        }
+
+        public void setDownloadEnabled(boolean downloadEnabled) {
+            this.downloadEnabled = downloadEnabled;
+        }
+    }
+
+    /** {@code upload-file.http.*} */
+    public static class Http {
+        /** Failure-body mode: {@code legacy} (rc.5 per-endpoint models) or {@code standard} (rc.6, uniform body + code). */
+        private String errorBody = "legacy";
+
+        /** HTTP status for canceling a missing task: {@code 404} (default) or {@code 200} (idempotent reclaim) (rc.6). */
+        private int cancelNotFoundStatus = 404;
+
+        public String getErrorBody() {
+            return errorBody;
+        }
+
+        public void setErrorBody(String errorBody) {
+            this.errorBody = errorBody;
+        }
+
+        public int getCancelNotFoundStatus() {
+            return cancelNotFoundStatus;
+        }
+
+        public void setCancelNotFoundStatus(int cancelNotFoundStatus) {
+            this.cancelNotFoundStatus = cancelNotFoundStatus;
+        }
+    }
+
+    /** {@code upload-file.multipart.*} */
+    public static class Multipart {
+        /** Multipart limit strategy (rc.6): {@code component} (max-chunk/max-request into @MultipartConfig,
+         *  rc.5 behaviour), {@code spring} (follow spring.servlet.multipart.*) or {@code unlimited}. */
+        private String strategy = "component";
+
+        public String getStrategy() {
+            return strategy;
+        }
+
+        public void setStrategy(String strategy) {
+            this.strategy = strategy;
         }
     }
 

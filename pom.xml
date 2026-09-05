@@ -12,7 +12,7 @@
 
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file</artifactId>
-    <version>1.0.0-rc.5</version>
+    <version>1.0.0-rc.6</version>
     <packaging>pom</packaging>
 
     <name>upload-file</name>
