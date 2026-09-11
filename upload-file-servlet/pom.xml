@@ -20,6 +20,11 @@
     <name>upload-file-servlet</name>
     <description>Servlet 3.0+ integration: chunk-upload servlet and resumable-download servlet</description>
 
+    <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>
         <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>

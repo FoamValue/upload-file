@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
@@ -31,6 +32,7 @@ import java.nio.file.Files;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 /**
@@ -134,6 +136,24 @@ public class DownloadServletTest {
 
         assertEquals(416, response.getStatus());
         assertEquals("bytes */" + CONTENT.length, response.getHeader("Content-Range"));
+        // rc.6: the failure is rendered as JSON (legacy UploadResult model) with a symbolic code.
+        assertTrue(response.getContentAsString().contains("\"success\":false"));
+    }
+
+    @Test
+    public void unsatisfiableRangeReturnsSymbolicCodeInStandardMode() throws Exception {
+        servlet.setErrorRenderer(UploadErrorRenderers.standard());
+        MockHttpServletRequest request = downloadRequest();
+        request.addHeader("Range", "bytes=999999-");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        servlet.doGet(request, response);
+
+        assertEquals(416, response.getStatus());
+        assertEquals("bytes */" + CONTENT.length, response.getHeader("Content-Range"));
+        String body = response.getContentAsString();
+        assertTrue(body.contains("\"code\":\"RANGE_NOT_SATISFIABLE\""));
+        assertTrue(body.contains("\"status\":416"));
     }
 
     @Test
@@ -145,6 +165,20 @@ public class DownloadServletTest {
         servlet.doGet(request, response);
 
         assertEquals(404, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"success\":false"));
+    }
+
+    @Test
+    public void missingFileReturnsNotFoundCodeInStandardMode() throws Exception {
+        servlet.setErrorRenderer(UploadErrorRenderers.standard());
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("identifier", "not-exists");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        servlet.doGet(request, response);
+
+        assertEquals(404, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"code\":\"UPLOAD_NOT_FOUND\""));
     }
 
     @Test
@@ -215,6 +249,70 @@ public class DownloadServletTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         secured.doGet(request, response);
 
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void nullAccessTokenHeaderKeepsDefault() throws Exception {
+        DownloadServlet secured = securedDownloadServlet("secret");
+        secured.setAccessTokenHeader(null);
+        MockHttpServletRequest request = downloadRequest();
+        request.addHeader("X-Access-Token", "secret");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        secured.doGet(request, response);
+
+        assertEquals(200, response.getStatus());
+    }
+
+    @Test
+    public void tokenFromQueryParamIsAccepted() throws Exception {
+        DownloadServlet secured = securedDownloadServlet("secret");
+        MockHttpServletRequest request = downloadRequest();
+        request.setParameter("token", "secret");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        secured.doGet(request, response);
+
+        assertEquals(200, response.getStatus());
+        assertArrayEquals(CONTENT, response.getContentAsByteArray());
+    }
+
+    @Test
+    public void setErrorRendererNullKeepsLegacyDefault() throws Exception {
+        servlet.setErrorRenderer(null);
+        MockHttpServletRequest request = downloadRequest();
+        request.addHeader("Range", "bytes=999999-");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        servlet.doGet(request, response);
+
+        assertEquals(416, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"success\":false"));
+    }
+
+    @Test
+    public void blankIdentifierReturns400() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setParameter("identifier", "   ");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        servlet.doGet(request, response);
+
+        assertEquals(400, response.getStatus());
+    }
+
+    @Test
+    public void initWithInjectedServiceDoesNotRebuildSharedContext() throws Exception {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath() + "/other");
+
+        servlet.init(config); // downloadService already injected -> context bootstrap is skipped
+
+        assertNull(servletContext.getAttribute(UploadFileContext.ATTRIBUTE_NAME));
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        servlet.doGet(downloadRequest(), response);
         assertEquals(200, response.getStatus());
     }
 

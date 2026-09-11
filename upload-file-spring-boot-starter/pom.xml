@@ -20,6 +20,11 @@
     <name>upload-file-spring-boot-starter</name>
     <description>Spring Boot 2.x auto-configuration: auto-wires core services and registers upload/download servlets</description>
 
+    <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>
         <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>

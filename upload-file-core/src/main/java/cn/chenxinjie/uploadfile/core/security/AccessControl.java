@@ -19,14 +19,16 @@ import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
  * <h2>Evolution (rc.6)</h2>
  *
  * <ul>
- *   <li>{@link #check(String, String, String)} is retained and {@code @Deprecated}; existing
- *       implementations keep compiling unchanged. Implementations may express a denial with an
- *       {@link AccessDeniedException} carrying a custom status ({@code 401} default,
- *       {@code 403} for an authenticated-but-forbidden caller).</li>
- *   <li>{@link #decide(String, String, String)} returns an {@link AccessDecision}; its default
- *       implementation derives from {@code check()} (returns normally → allow; throws
- *       {@code AccessDeniedException} → deny with the exception's status), so decision-based and
- *       exception-based implementations are both valid and interoperable.</li>
+ *   <li>{@link #decide(String, String, String)} returns an {@link AccessDecision}. New
+ *       implementations should override this method; its default implementation bridges to the
+ *       legacy {@link #check(String, String, String)} (returns normally → allow; throws
+ *       {@code AccessDeniedException} → deny with the exception's status), so exception-based
+ *       implementations remain valid and interoperable.</li>
+ *   <li>{@link #check(String, String, String)} is retained as a {@code @Deprecated default} method;
+ *       existing implementations that only override {@code check()} keep compiling and behaving
+ *       unchanged, while new implementations can override {@code decide()} alone. An
+ *       {@link AccessDeniedException} may carry a custom status ({@code 401} default, {@code 403}
+ *       for an authenticated-but-forbidden caller).</li>
  * </ul>
  */
 public interface AccessControl {
@@ -69,9 +71,15 @@ public interface AccessControl {
      * @param action     one of the {@code ACTION_*} constants
      * @param token      the credential supplied by the caller; null when absent
      * @throws AccessDeniedException when the operation is not allowed
+     * @throws UnsupportedOperationException when neither {@code check()} nor {@code decide()} is
+     *             overridden (an implementation must provide one of them)
      * @deprecated since 1.0.0-rc.6 — prefer overriding {@link #decide(String, String, String)};
-     *             kept so existing implementations compile and behave unchanged.
+     *             kept as a default method so existing implementations compile and behave unchanged
+     *             and new implementations can override {@code decide()} alone.
      */
     @Deprecated
-    void check(String identifier, String action, String token) throws AccessDeniedException;
+    default void check(String identifier, String action, String token) throws AccessDeniedException {
+        throw new UnsupportedOperationException(
+                "AccessControl.check() is deprecated since 1.0.0-rc.6; override decide(...) instead");
+    }
 }

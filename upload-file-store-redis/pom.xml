@@ -20,6 +20,11 @@
     <name>upload-file-store-redis</name>
     <description>Optional metadata store plugin: TaskStore backed by Redis (Jedis)</description>
 
+    <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>
         <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>

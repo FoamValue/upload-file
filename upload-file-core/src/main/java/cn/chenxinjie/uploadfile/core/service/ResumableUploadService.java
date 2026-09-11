@@ -337,8 +337,23 @@ public class ResumableUploadService {
 
     /**
      * Returns whether the given chunk has already been uploaded.
+     *
+     * <p>This convenience read does <b>not</b> run the access-control gate. When the caller is
+     * untrusted (e.g. an HTTP boundary), use {@link #isChunkUploaded(String, int, String)} so the
+     * configured {@link AccessControl} is enforced.</p>
      */
     public boolean isChunkUploaded(String identifier, int chunkIndex) {
+        UploadTask task = taskStore.get(identifier).orElse(null);
+        return task != null && task.isUploaded(chunkIndex);
+    }
+
+    /**
+     * Returns whether the given chunk has already been uploaded, enforcing access control
+     * ({@link AccessControl#ACTION_PROGRESS}) against the supplied token (rc.6).
+     */
+    public boolean isChunkUploaded(String identifier, int chunkIndex, String token) {
+        StringUtil.requireSafeIdentifier(identifier);
+        gate(identifier, AccessControl.ACTION_PROGRESS, token);
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task != null && task.isUploaded(chunkIndex);
     }
@@ -351,9 +366,23 @@ public class ResumableUploadService {
      * merge call) and use {@link UploadTask#getFinalPath()} to locate the merged artifact, instead of
      * guessing the directory layout. The returned object is a live snapshot of the store record;
      * treat it as read-only.</p>
+     *
+     * <p>This convenience read does <b>not</b> run the access-control gate; it is intended for the
+     * trusted server-side confirm flow. When the caller is untrusted, use
+     * {@link #getTask(String, String)} so the configured {@link AccessControl} is enforced.</p>
      */
     public Optional<UploadTask> getTask(String identifier) {
         StringUtil.requireSafeIdentifier(identifier);
+        return taskStore.get(identifier);
+    }
+
+    /**
+     * Returns the current task metadata, enforcing access control
+     * ({@link AccessControl#ACTION_PROGRESS}) against the supplied token (rc.6).
+     */
+    public Optional<UploadTask> getTask(String identifier, String token) {
+        StringUtil.requireSafeIdentifier(identifier);
+        gate(identifier, AccessControl.ACTION_PROGRESS, token);
         return taskStore.get(identifier);
     }
 

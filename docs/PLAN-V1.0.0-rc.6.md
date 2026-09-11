@@ -14,10 +14,15 @@
 > and a migration guide. Feedback sources: `doc/user-feedback/upload-file-usage-feedback.md` (§7
 > P0-2/P1-4/P1-7) and the path-finder ADR/UPGRADE evaluation outcomes.
 >
-> ✅ **Status: implemented and released in `1.0.0-rc.6`.** All tasks (T25–T34) are done: endpoint control,
-> additive decision-returning `AccessControl` with audit hooks, symbolic codes + uniform error body, multipart
-> strategy, servlet behaviour convergence, and the migration guide are shipped — see the
-> [Changelog](../CHANGELOG.md).
+> ✅ **Status: the core of `1.0.0-rc.6` is implemented and released.** T25–T31 and T34 are done: endpoint
+> control, additive decision-returning `AccessControl` with audit hooks, symbolic codes + uniform error body,
+> multipart strategy, and servlet behaviour convergence are shipped — see the [Changelog](../CHANGELOG.md).
+>
+> ⚠️ **Outstanding (follow-up):** the T32 "hand-rolled MVC endpoints → official Servlet" migration guide
+> (coordinate/difference matrices, one-line breaking-default configs, `check()`→`decide()` snippet) is not yet
+> written; the T33 commercial wiring currently lives only as `application.yml` comments in `boot4-demo`, without
+> the planned demo config class (`AccessControl.decide()` + `AccessDecision.deny(403,...)` + an
+> `AccessControlListener` audit example).
 
 ## 1. Goals & Scope
 

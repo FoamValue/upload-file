@@ -7,6 +7,7 @@
 package cn.chenxinjie.uploadfile.core.security;
 
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
+import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
@@ -15,7 +16,9 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.TemporaryFolder;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -40,6 +43,7 @@ public class AccessControlRc6Test {
         assertEquals(403, denied.statusCode());
         assertEquals("forbidden", denied.reason());
         assertThrows(IllegalArgumentException.class, () -> AccessDecision.deny(200, "not an error"));
+        assertThrows(IllegalArgumentException.class, () -> AccessDecision.deny(600, "not an error"));
     }
 
     @Test
@@ -104,6 +108,52 @@ public class AccessControlRc6Test {
         assertEquals(1, denyEvents.get());
     }
 
+    @Test
+    public void gatedReadOverloadsEnforceAccessControl() throws Exception {
+        ResumableUploadService allowService = service(PermitAllAccessControl.INSTANCE);
+        ChunkUploadRequest request = new ChunkUploadRequest();
+        request.setIdentifier("read1");
+        request.setFileName("demo.bin");
+        request.setFileSize(3);
+        request.setChunkSize(3);
+        request.setChunkTotal(1);
+        request.setChunkIndex(0);
+        allowService.uploadChunk(request, new ByteArrayInputStream("abc".getBytes(StandardCharsets.UTF_8)));
+
+        assertTrue(allowService.isChunkUploaded("read1", 0, null));
+        assertFalse(allowService.isChunkUploaded("read1", 1, null));       // task exists, chunk not uploaded
+        assertFalse(allowService.isChunkUploaded("no-such-task", 0, null)); // task missing
+        assertTrue(allowService.getTask("read1", null).isPresent());
+        assertFalse(allowService.getTask("no-such-task", null).isPresent());
+
+        ResumableUploadService denyService = service(new DenyAlways());
+        assertEquals(403, assertThrows(AccessDeniedException.class,
+                () -> denyService.isChunkUploaded("read1", 0, "tk")).getStatusCode());
+        assertEquals(403, assertThrows(AccessDeniedException.class,
+                () -> denyService.getTask("read1", "tk")).getStatusCode());
+    }
+
+    @Test
+    public void decideOnlyImplementationRejectsDeprecatedCheck() {
+        AccessControl decideOnly = new AccessControl() {
+            @Override
+            public AccessDecision decide(String identifier, String action, String token) {
+                return AccessDecision.allow();
+            }
+        };
+        assertTrue(decideOnly.decide("x", AccessControl.ACTION_UPLOAD, null).allowed());
+        // The default check() is a deprecated bridge that must not be called directly.
+        assertThrows(UnsupportedOperationException.class,
+                () -> decideOnly.check("x", AccessControl.ACTION_UPLOAD, null));
+    }
+
+    @Test
+    public void accessDecisionToStringDescribesAllowAndDeny() {
+        assertEquals("ALLOW", AccessDecision.allow().toString());
+        assertEquals("DENY(403, owner mismatch)", AccessDecision.deny(403, "owner mismatch").toString());
+        assertEquals("DENY(401)", AccessDecision.deny(401, null).toString());
+    }
+
     private ResumableUploadService service(AccessControl accessControl) {
         return new ResumableUploadService(
                 new MemoryTaskStore(),
@@ -112,19 +162,14 @@ public class AccessControlRc6Test {
                 true, true, true, new IdentifierLock(), accessControl);
     }
 
+    /**
+     * rc.6: a new implementation may override {@link AccessControl#decide} only and need not
+     * implement the deprecated {@code check()} at all.
+     */
     private static final class DenyAlways implements AccessControl {
         @Override
         public AccessDecision decide(String identifier, String action, String token) {
             return AccessDecision.deny(403, "no access");
-        }
-
-        @Override
-        @Deprecated
-        public void check(String identifier, String action, String token) {
-            AccessDecision d = decide(identifier, action, token);
-            if (!d.allowed()) {
-                throw new AccessDeniedException(d.statusCode(), d.reason());
-            }
         }
     }
 }

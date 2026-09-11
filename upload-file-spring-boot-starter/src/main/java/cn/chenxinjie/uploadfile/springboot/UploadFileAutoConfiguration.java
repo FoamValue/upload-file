@@ -307,23 +307,36 @@ public class UploadFileAutoConfiguration {
     @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "enabled", havingValue = "true", matchIfMissing = true)
     public static class EndpointRegistrationConfiguration {
 
-        /** Registers the upload servlet unless {@code endpoint.upload-enabled=false} (rc.6). */
+        /**
+         * Registers the upload servlet unless {@code endpoint.upload-enabled=false} (rc.6).
+         *
+         * <p>The servlet instance is exposed as a bean so a host can override it by type
+         * ({@code @Bean UploadServlet}); the registration can additionally be overridden by defining a
+         * bean named {@code uploadFileServletRegistration}. A host that defines either wins.</p>
+         */
         @Configuration(proxyBeanMethods = false)
         @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "upload-enabled", havingValue = "true", matchIfMissing = true)
         public static class UploadServletRegistrationConfiguration {
 
             @Bean
-            @ConditionalOnMissingBean(name = "uploadFileServletRegistration")
-            public ServletRegistrationBean<UploadServlet> uploadFileServletRegistration(
-                    ResumableUploadService uploadService, UploadFileProperties properties,
-                    Environment environment) {
+            @ConditionalOnMissingBean
+            public UploadServlet uploadFileServlet(ResumableUploadService uploadService,
+                                                   UploadFileProperties properties) {
                 UploadServlet servlet = new UploadServlet();
                 servlet.setUploadService(uploadService);
                 servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
                 servlet.setErrorRenderer(UploadErrorRenderers.from(properties.getHttp().getErrorBody()));
                 servlet.setCancelNotFoundStatus(properties.getHttp().getCancelNotFoundStatus());
+                return servlet;
+            }
+
+            @Bean
+            @ConditionalOnMissingBean(name = "uploadFileServletRegistration")
+            public ServletRegistrationBean<UploadServlet> uploadFileServletRegistration(
+                    UploadServlet uploadFileServlet, UploadFileProperties properties,
+                    Environment environment) {
                 ServletRegistrationBean<UploadServlet> registration =
-                        new ServletRegistrationBean<>(servlet, properties.getUploadUrl());
+                        new ServletRegistrationBean<>(uploadFileServlet, properties.getUploadUrl());
                 registration.setName("uploadFileServlet");
                 registration.setLoadOnStartup(1);
                 registration.setMultipartConfig(multipartConfig(properties, environment));
@@ -331,20 +344,33 @@ public class UploadFileAutoConfiguration {
             }
         }
 
-        /** Registers the download servlet only when {@code endpoint.download-enabled=true} (rc.6, off by default). */
+        /**
+         * Registers the download servlet only when {@code endpoint.download-enabled=true} (rc.6, off by default).
+         *
+         * <p>Same override contract as the upload servlet: a host-provided {@code DownloadServlet} bean or a
+         * bean named {@code downloadFileServletRegistration} takes precedence.</p>
+         */
         @Configuration(proxyBeanMethods = false)
         @ConditionalOnProperty(prefix = "upload-file.endpoint", name = "download-enabled", havingValue = "true")
         public static class DownloadServletRegistrationConfiguration {
 
             @Bean
-            @ConditionalOnMissingBean(name = "downloadFileServletRegistration")
-            public ServletRegistrationBean<DownloadServlet> downloadFileServletRegistration(
-                    ResumableDownloadService downloadService, UploadFileProperties properties) {
+            @ConditionalOnMissingBean
+            public DownloadServlet downloadFileServlet(ResumableDownloadService downloadService,
+                                                       UploadFileProperties properties) {
                 DownloadServlet servlet = new DownloadServlet();
                 servlet.setDownloadService(downloadService);
                 servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
+                servlet.setErrorRenderer(UploadErrorRenderers.from(properties.getHttp().getErrorBody()));
+                return servlet;
+            }
+
+            @Bean
+            @ConditionalOnMissingBean(name = "downloadFileServletRegistration")
+            public ServletRegistrationBean<DownloadServlet> downloadFileServletRegistration(
+                    DownloadServlet downloadFileServlet, UploadFileProperties properties) {
                 ServletRegistrationBean<DownloadServlet> registration =
-                        new ServletRegistrationBean<>(servlet, properties.getDownloadUrl());
+                        new ServletRegistrationBean<>(downloadFileServlet, properties.getDownloadUrl());
                 registration.setName("downloadFileServlet");
                 registration.setLoadOnStartup(1);
                 return registration;

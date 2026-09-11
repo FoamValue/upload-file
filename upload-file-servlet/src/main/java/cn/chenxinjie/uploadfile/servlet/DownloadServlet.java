@@ -6,9 +6,14 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderer;
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
+import cn.chenxinjie.uploadfile.core.exception.UploadErrorCodes;
 import cn.chenxinjie.uploadfile.core.model.DownloadRange;
+import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
+import com.google.gson.Gson;
 
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
@@ -42,10 +47,14 @@ public class DownloadServlet extends HttpServlet {
 
     private static final int BUFFER_SIZE = 8192;
 
+    private final Gson gson = new Gson();
     private ResumableDownloadService downloadService;
 
     /** Name of the header carrying the access token; a {@code token} query param is also accepted. */
     private volatile String accessTokenHeader = "X-Access-Token";
+
+    /** Failure-body renderer (rc.6); {@code legacy} by default. */
+    private volatile UploadErrorRenderer errorRenderer = UploadErrorRenderers.legacy();
 
     public void setDownloadService(ResumableDownloadService downloadService) {
         this.downloadService = downloadService;
@@ -57,6 +66,12 @@ public class DownloadServlet extends HttpServlet {
         }
     }
 
+    public void setErrorRenderer(UploadErrorRenderer errorRenderer) {
+        if (errorRenderer != null) {
+            this.errorRenderer = errorRenderer;
+        }
+    }
+
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
@@ -64,6 +79,7 @@ public class DownloadServlet extends HttpServlet {
             UploadFileContext context = UploadFileContext.getOrCreate(config.getServletContext(), config);
             downloadService = context.getDownloadService();
             accessTokenHeader = context.getAccessTokenHeader();
+            setErrorRenderer(UploadErrorRenderers.from(context.getHttpErrorBody()));
         }
     }
 
@@ -81,7 +97,8 @@ public class DownloadServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         String identifier = req.getParameter("identifier");
         if (identifier == null || identifier.trim().isEmpty()) {
-            resp.sendError(400, "Missing identifier");
+            writeError(resp, AccessControl.ACTION_DOWNLOAD, null, 400,
+                    UploadErrorCodes.MISSING_IDENTIFIER, "identifier is required");
             return;
         }
         String token = token(req);
@@ -90,15 +107,20 @@ public class DownloadServlet extends HttpServlet {
             fileOpt = downloadService.resolveFile(identifier, token);
         } catch (AccessDeniedException e) {
             // rc.6: honor the decision status (401 unauthenticated / 403 forbidden).
-            resp.sendError(e.getStatusCode(), "Access denied");
+            writeError(resp, AccessControl.ACTION_DOWNLOAD, identifier, e.getStatusCode(),
+                    UploadErrorCodes.ACCESS_DENIED, "Access denied");
             return;
         }
         if (!fileOpt.isPresent()) {
-            resp.sendError(404, "File not found: " + identifier);
+            writeError(resp, AccessControl.ACTION_DOWNLOAD, identifier, 404,
+                    UploadErrorCodes.UPLOAD_NOT_FOUND, "File not found");
             return;
         }
         File file = fileOpt.get();
-        String fileName = downloadService.resolveFileName(identifier, token);
+        // rc.6: the access check already ran inside resolveFile(); derive the download name from the
+        // resolved artifact instead of calling resolveFileName() again, so one request is gated once
+        // (a single audit event, and a policy with side effects is not evaluated twice).
+        String fileName = file.getName();
 
         resp.setHeader("Accept-Ranges", "bytes");
         setDisposition(resp, fileName);
@@ -117,8 +139,10 @@ public class DownloadServlet extends HttpServlet {
         Optional<DownloadRange> rangeOpt = DownloadRange.parse(rangeHeader, total);
         if (!rangeOpt.isPresent()) {
             // The requested range is malformed or unsatisfiable (e.g. start beyond EOF).
-            resp.setStatus(HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE);
             resp.setHeader("Content-Range", "bytes */" + total);
+            writeError(resp, AccessControl.ACTION_DOWNLOAD, identifier,
+                    HttpServletResponse.SC_REQUESTED_RANGE_NOT_SATISFIABLE,
+                    UploadErrorCodes.RANGE_NOT_SATISFIABLE, "Requested range not satisfiable");
             return;
         }
         DownloadRange range = rangeOpt.get();
@@ -128,6 +152,14 @@ public class DownloadServlet extends HttpServlet {
                 "bytes " + range.getStart() + "-" + range.getEnd() + "/" + total);
         setContentLength(resp, range.getContentLength());
         downloadService.writeRange(file, range.getStart(), range.getContentLength(), resp.getOutputStream());
+    }
+
+    private void writeError(HttpServletResponse resp, String action, String identifier,
+                            int status, String code, String message) throws IOException {
+        Object body = errorRenderer.render(action, identifier, status, code, message);
+        resp.setStatus(status);
+        resp.setContentType("application/json; charset=UTF-8");
+        resp.getWriter().write(gson.toJson(body));
     }
 
     /**

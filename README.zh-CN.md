@@ -11,6 +11,10 @@
 
 > 🚧 状态：**Pre-release** `1.0.0-rc.6` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
+> ⚠️ **rc.6 升级提示（breaking 默认）**：`/download` 默认不再注册（最小暴露面）。如依赖官方下载端点，请显式设置
+> `upload-file.endpoint.download-enabled=true`；另外 `GET /upload` 缺失/未知 `action` 现返回 `400`（不再当作 progress），
+> 服务端故障不再被吞成 `400`。详见[更新日志](CHANGELOG.zh-CN.md)。
+
 > 🇺🇸 [English](README.md)
 
 ## 特性
@@ -33,6 +37,11 @@
 - **多实例协调**：可选 Redis 租约锁，保证同一时刻只有一个实例执行清理调度
 - **任务显式读取与取消（rc.4）**：`getTask(identifier)` 作为集成侧「confirm 入库」阶段的稳定读接口；`cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` 可直接回收任务分片与合并产物，无需等待清理调度
 - **稳定的错误语义（rc.4）**：core 失败异常统一携带 `UploadErrorCode` 稳定 HTTP 状态码（`400`/`401`/`404`/`409`/`507`），Servlet 与 Spring 集成自动映射
+- **端点注册可控（rc.6）**：`upload-file.endpoint.*` 可开关上传/下载端点；`endpoint.enabled=false` 为纯 bean 模式（只装配服务 Bean）；`/download` 默认关闭（最小暴露面），服务 Bean 与注册 Bean 均可被宿主同名/同类型 Bean 覆盖
+- **可区分的访问决策（rc.6）**：`AccessControl.decide(...)` 返回 `AccessDecision`，拒绝可携带 `401`（未认证）或 `403`（越权）；旧 `check(...)` 保留为默认桥接，既有实现零改动
+- **审计钩子与访问日志（rc.6）**：可选 `AccessControlListener` 在每个入口（放行/拒绝 + 决策耗时）触发，MVC 与 Servlet 共用同一路径；`observability.access-log=true` 输出结构化访问日志
+- **符号错误码与统一错误体（rc.6）**：每个带码异常携带 `UploadErrorCodes` 中的稳定符号码；`http.error-body=standard` 输出统一 `UploadHttpError`，默认 `legacy` 保持旧端点模型
+- **multipart 策略化（rc.6）**：`multipart.strategy=component|spring|unlimited`，可在组件自管、跟随 `spring.servlet.multipart.*`、关闭容器上限之间选择
 
 ## 模块说明
 
@@ -223,8 +232,15 @@ upload-file:
     key-prefix: upload:task:
 ```
 
-> 纯 Servlet 部署使用同名 init-param 配置（如 `chunk.max-size`、`cleanup.enabled`、`async-merge.enabled`、
-> `security.token`、`max-file-size`、`quota.max-bytes`）。
+> 纯 Servlet 部署通过 init-param 配置，**名称并非与 Spring 属性逐一对应**，请以本表为准：
+> 单分片上限 Spring 为 `upload-file.max-chunk-size`、servlet init-param 为 `chunk.max-size`；取消不存在任务的状态
+> Spring 为 `upload-file.http.cancel-not-found-status`、servlet init-param 为 `cancel-not-found-status`。
+> 其余常用项：`cleanup.enabled`、`cleanup.interval`、`cleanup.task-ttl`、`async-merge.enabled`、`security.token`、
+> `security.header-name`、`max-file-size`、`quota.max-bytes`、`http.error-body`。
+
+> **可选 store 依赖**：`upload-file-store-jdbc` / `upload-file-store-redis` 在 starter 中是 `optional` 依赖，
+> **不会被传递引入**。使用 `metadata-store=jdbc` / `redis` 时须显式添加对应产物，否则自动配置会记录一条告警并
+> 回退到 `file`/`memory` store（表现为「配置了却没生效」）。
 
 ## 访问控制
 
@@ -233,8 +249,9 @@ upload-file:
 开启安全校验而未配置令牌会在启动时直接失败（fail-fast），避免误配置导致接口静默开放。
 安全关闭（默认）时行为与旧版本完全一致。
 
-> **对接已有登录态：** 如需复用自有会话（Bearer/SSO）而非共享令牌，实现一次 `AccessControl` SPI 并在
-> `check(...)` 中委托给当前登录主体即可——core 会在每个入口调用它。在 `/upload` 前置 Spring Security
+> **对接已有登录态：** 如需复用自有会话（Bearer/SSO）而非共享令牌，实现一次 `AccessControl` SPI 并覆写
+> `decide(...)` 返回 `AccessDecision`（`deny(403, ...)` 可区分越权与未认证）即可——core 会在每个入口调用它；
+> 旧实现也可继续只覆写 `check(...)`（自 rc.6 起为 `@Deprecated` 默认方法，经 `decide()` 桥接）。在 `/upload` 前置 Spring Security
 > 过滤器同样可行（多数单组织私有部署的选择）；组件只在自身 SPI 被装配时才强制其鉴权。
 
 ## 集成指南（自 1.0.0-rc.4 起）
@@ -310,6 +327,73 @@ ResponseEntity<?> onUploadError(Exception e) {
 core 的 `DownloadRange.parse(String)` 可解析单段/多段 `Range` 头并识别不可满足区间；集成方若自行
 提供下载（例如 confirm 阶段已迁出组件的文件），可直接复用它而非重写 Range 逻辑。下载仍存于组件的
 合并产物，仍建议走官方 `/download` 端点。
+
+## 迁移向导：自研 MVC 端点 → 官方 Servlet（rc.6）
+
+面向「core 手工装配 + 自研 MVC 端点」（如 path-finder）的接入方：官方 HTTP 层在 rc.6 已可按需采用，
+以下矩阵与片段帮助判断「翻哪些开关、动哪几个文件」。
+
+### 1. 选产物（坐标矩阵）
+
+| 技术栈 | servlet 产物 | starter 产物 |
+| --- | --- | --- |
+| Spring Boot 2.x / Servlet 3/4（`javax`） | `upload-file-servlet` | `upload-file-spring-boot-starter` |
+| Spring Boot 3/4 / Tomcat 10+（`jakarta`） | `upload-file-servlet-jakarta` | `upload-file-spring-boot-starter-jakarta` |
+
+同一 `javax` 与其 `-jakarta` 孪生版**不可同存于同一 classpath**；FQCN 与 `upload-file.*` 属性一致，切换只换坐标。
+
+### 2. 差异矩阵（自研端点 vs 官方 rc.6）
+
+| 维度 | 自研 MVC 端点 | 官方 Servlet（rc.6） | 如何对齐 |
+| --- | --- | --- | --- |
+| 成功响应体 | 业务统一信封 `{code,message,data}` | 组件裸 JSON（`UploadProgress`/`MergeStatus`/`UploadResult`） | 前端对组件端点单独分支，或保留自研端点 |
+| 失败响应体 | 业务信封 | `legacy`（默认，端点模型）或 `standard`（`UploadHttpError`） | 需自有信封 → 提供 `UploadErrorRenderer` Bean |
+| 拒绝状态 | 统一 `401` | `401`（未认证）/ `403`（越权） | 覆写 `AccessControl.decide()` 返回 `AccessDecision` |
+| `GET /upload` 缺/未知 action | 自行处理 | `400`（`MISSING_ACTION`/`UPLOAD_UNKNOWN_ACTION`） | 前端确保携带已知 `action` |
+| 服务端故障 | `500` | `500`（不再吞成 `400`） | — |
+| 取消不存在任务 | 自行定义 | 默认 `404`；`http.cancel-not-found-status=200` 幂等 | 按需设置 |
+| 下载端点 | 自研 Range | `/download`，**默认不注册** | `endpoint.download-enabled=true` |
+| multipart 上限 | 容器/框架配置 | `multipart.strategy` | `component`/`spring`/`unlimited` |
+| 端点接管 | 自研 Controller 优先 | Servlet 注册，可用 Bean 覆盖 | `endpoint.enabled=false` 纯 bean 模式 |
+
+### 3. breaking 默认的一行配置
+
+```yaml
+upload-file:
+  endpoint:
+    download-enabled: true    # 恢复官方下载端点（rc.6 默认关闭）
+  http:
+    error-body: legacy        # 或 standard；需业务信封请提供 UploadErrorRenderer
+    cancel-not-found-status: 404
+  multipart:
+    strategy: component       # 若改 spring，务必调大 spring.servlet.multipart.max-file-size
+```
+
+### 4. AccessControl 增量迁移
+
+旧实现只覆写 `check(...)` 仍可编译运行（rc.6 起为 `@Deprecated` 默认方法，经 `decide()` 桥接）；新实现建议覆写
+`decide()`：
+
+```java
+AccessControl ac = new AccessControl() {   // 注意：rc.6 起 AccessControl 不再是函数式接口
+    @Override
+    public AccessDecision decide(String id, String action, String token) {
+        if (!ownerOf(token).equals(ownerOf(id))) {
+            return AccessDecision.deny(403, "owner mismatch");   // 401 未认证 / 403 越权
+        }
+        return AccessDecision.allow();
+    }
+};
+```
+
+审计：实现 `AccessControlListener`（starter 下自动装配；纯 Servlet 用 `observability.access-log` 或手工
+`addAccessControlListener`），MVC 与 Servlet 两条路径都能拿到一致的 allow/deny 事件。
+
+### 5. 最小暴露建议
+
+- 只用上传：`endpoint.download-enabled=false`（默认）即可，下载仍走自研；
+- 审计：`observability.access-log=true` 或注册 `AccessControlListener`；
+- 鉴权：优先覆写 `decide()` 对接自有会话，避免在组件外再包一层。
 
 ## HTTP API 概览
 

@@ -28,6 +28,8 @@
     </scm>
 
     <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
         <!-- Import the Spring Boot 4 BOM module-locally so the jakarta modules resolve the
              jakarta.servlet-api and spring-test versions; overrides the parent Boot 2.7 BOM.
              Version property inherited from the parent pom (spring.boot4.version). Bytecode

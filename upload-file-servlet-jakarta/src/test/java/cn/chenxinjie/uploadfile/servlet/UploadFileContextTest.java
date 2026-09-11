@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.servlet;
 
+import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
@@ -153,6 +154,121 @@ public class UploadFileContextTest {
         assertEquals(1024L, parsed.maxFileSize);
         assertEquals(2048L, parsed.quotaMaxBytes);
         assertTrue(!parsed.observabilityLogStats);
+    }
+
+    @Test
+    public void rc6InitParamsAreParsed() {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("observability.access-log", "true");
+        config.addInitParameter("http.error-body", "standard");
+        config.addInitParameter("cancel-not-found-status", "200");
+
+        UploadFileContext.Config parsed = UploadFileContext.Config.fromInitParams(config);
+
+        assertTrue(parsed.observabilityAccessLog);
+        assertEquals("standard", parsed.httpErrorBody);
+        assertEquals(200, parsed.cancelNotFoundStatus);
+    }
+
+    @Test
+    public void accessLogListenerEmitsOnDecision() {
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger("cn.chenxinjie.uploadfile.access");
+        java.util.List<java.util.logging.LogRecord> records = new java.util.ArrayList<>();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                records.add(record);
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        logger.addHandler(handler);
+        try {
+            UploadFileContext.Config config = new UploadFileContext.Config();
+            config.observabilityAccessLog = true;
+            UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+            context.getUploadService().getProgress("audit1");
+            assertTrue(records.stream().anyMatch(r -> r.getMessage().contains("upload-file access")));
+        } finally {
+            logger.removeHandler(handler);
+        }
+    }
+
+    @Test
+    public void accessLogListenerLogsDeny() {
+        java.util.logging.Logger logger = java.util.logging.Logger.getLogger("cn.chenxinjie.uploadfile.access");
+        java.util.List<java.util.logging.LogRecord> records = new java.util.ArrayList<>();
+        java.util.logging.Handler handler = new java.util.logging.Handler() {
+            @Override
+            public void publish(java.util.logging.LogRecord record) {
+                records.add(record);
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        logger.addHandler(handler);
+        try {
+            UploadFileContext.Config config = new UploadFileContext.Config();
+            config.securityEnabled = true;
+            config.securityToken = "secret";
+            config.observabilityAccessLog = true;
+            UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+
+            assertThrows(AccessDeniedException.class,
+                    () -> context.getUploadService().getProgress("denied"));
+            assertTrue(records.stream().anyMatch(r -> r.getLevel() == java.util.logging.Level.WARNING
+                    && r.getMessage().contains("DENY")));
+        } finally {
+            logger.removeHandler(handler);
+        }
+    }
+
+    @Test
+    public void logStatsDisabledStillBuildsCleanupService() {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.observabilityLogStats = false;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
+        assertNotNull(context.getCleanupService());
+    }
+
+    @Test
+    public void blankMetadataDirFallsBackToMemoryStore() {
+        UploadFileContext context = UploadFileContext.build(
+                folder.getRoot().getAbsolutePath(), "   ", new UploadFileContext.Config());
+        assertTrue(context.getTaskStore() instanceof MemoryTaskStore);
+    }
+
+    @Test
+    public void nullSecurityTokenFailsFast() {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.securityEnabled = true;
+        config.securityToken = null;
+        assertThrows(IllegalArgumentException.class,
+                () -> UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config));
+    }
+
+    @Test
+    public void blankInitParamFallsBackToDefault() {
+        MockServletContext servletContext = new MockServletContext();
+        MockServletConfig config = new MockServletConfig(servletContext);
+        config.addInitParameter("metadata-store", "   ");
+
+        UploadFileContext.Config parsed = UploadFileContext.Config.fromInitParams(config);
+
+        assertEquals("auto", parsed.metadataStore);
     }
 
     @Test

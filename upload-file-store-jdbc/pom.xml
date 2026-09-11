@@ -20,6 +20,11 @@
     <name>upload-file-store-jdbc</name>
     <description>Optional metadata store plugin: TaskStore backed by a JDBC datasource</description>
 
+    <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+    </properties>
+
     <url>https://github.com/FoamValue/upload-file</url>
     <scm>
         <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>

@@ -8,6 +8,7 @@ package cn.chenxinjie.uploadfile.servlet;
 
 import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
+import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
@@ -58,6 +59,7 @@ import java.util.logging.Logger;
  *   <li>{@code cleanup.use-redis-lock}: use a distributed cleanup lease lock (default {@code false});
  *       requires the lock to be supplied via {@link #build(String, String, Config, CleanupLock)}</li>
  *   <li>{@code observability.log-stats}: log cleanup statistics (default {@code true})</li>
+ *   <li>{@code observability.access-log}: log one structured line per access decision (default {@code false}, rc.6)</li>
  * </ul>
  *
  * <p>All cleanup/async threads are daemon threads, so they terminate with the container.</p>
@@ -67,6 +69,8 @@ public final class UploadFileContext {
     public static final String ATTRIBUTE_NAME = UploadFileContext.class.getName();
 
     private static final Logger CLEANUP_LOG = Logger.getLogger(StorageCleanupService.class.getName());
+
+    private static final Logger ACCESS_LOG = Logger.getLogger("cn.chenxinjie.uploadfile.access");
 
     /** Writes a structured cleanup-statistics log line (wired when {@code observability.log-stats}). */
     private static final java.util.function.Consumer<CleanupStats> CLEANUP_LOG_LISTENER = stats ->
@@ -78,6 +82,21 @@ public final class UploadFileContext {
                 + ", cleanedOrphans=" + stats.getCleanedOrphans()
                 + ", elapsedMs=" + stats.getElapsedMillis()
                 + ", error=" + (stats.getError() == null ? "null" : stats.getError());
+    }
+
+    /** Structured access-decision log line, mirroring the starter's {@code observability.access-log}. */
+    private static AccessControlListener accessLogListener() {
+        return (identifier, action, decision, elapsedNanos) -> {
+            double elapsedMs = elapsedNanos / 1_000_000.0;
+            if (decision.allowed()) {
+                ACCESS_LOG.log(Level.INFO, "upload-file access: action={0}, identifier={1}, decision=ALLOW, elapsedMs={2}",
+                        new Object[]{action, identifier, elapsedMs});
+            } else {
+                ACCESS_LOG.log(Level.WARNING,
+                        "upload-file access: action={0}, identifier={1}, decision=DENY, status={2}, reason={3}, elapsedMs={4}",
+                        new Object[]{action, identifier, decision.statusCode(), decision.reason(), elapsedMs});
+            }
+        };
     }
 
     private final TaskStore taskStore;
@@ -193,6 +212,14 @@ public final class UploadFileContext {
         ResumableDownloadService downloadService = new ResumableDownloadService(store, mergedDir);
         downloadService.setAccessControl(accessControl);
 
+        if (config.observabilityAccessLog) {
+            // Plain-Servlet deployments get the same access-decision observability as the starter
+            // (observability.access-log); the listener observes both the upload and download paths.
+            AccessControlListener listener = accessLogListener();
+            uploadService.addAccessControlListener(listener);
+            downloadService.addAccessControlListener(listener);
+        }
+
         StorageCleanupService cleanupService = new StorageCleanupService(
                 store, chunkStorage, mergedDir, config.cleanupTaskTtlMillis, config.cleanupOrphanEnabled,
                 identifierLock, cleanupLock);
@@ -285,6 +312,7 @@ public final class UploadFileContext {
         public long maxFileSize = 0;
         public long quotaMaxBytes = 0;
         public boolean observabilityLogStats = true;
+        public boolean observabilityAccessLog = false;
         public boolean cleanupUseRedisLock = false;
         public String httpErrorBody = "legacy";
         public int cancelNotFoundStatus = 404;
@@ -308,6 +336,7 @@ public final class UploadFileContext {
             c.maxFileSize = longParam(config, "max-file-size", c.maxFileSize);
             c.quotaMaxBytes = longParam(config, "quota.max-bytes", c.quotaMaxBytes);
             c.observabilityLogStats = boolParam(config, "observability.log-stats", c.observabilityLogStats);
+            c.observabilityAccessLog = boolParam(config, "observability.access-log", c.observabilityAccessLog);
             c.cleanupUseRedisLock = boolParam(config, "cleanup.use-redis-lock", c.cleanupUseRedisLock);
             c.httpErrorBody = initParam(config, "http.error-body", c.httpErrorBody);
             c.cancelNotFoundStatus = intParam(config, "cancel-not-found-status", c.cancelNotFoundStatus);

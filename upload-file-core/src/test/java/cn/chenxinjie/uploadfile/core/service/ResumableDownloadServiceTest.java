@@ -21,6 +21,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
@@ -155,6 +156,23 @@ public class ResumableDownloadServiceTest {
     public void accessControlDeniesWithWrongToken() throws Exception {
         service.setAccessControl(new TokenAccessControl("tk"));
         assertThrows(AccessDeniedException.class, () -> service.resolveFile("d3", "nope"));
+    }
+
+    @Test
+    public void accessControlListenersObserveDownloadDecisions() throws Exception {
+        File target = writeMergedFile("dl1");
+        store.save(mergedTask("dl1", "demo.txt", target.getAbsolutePath()));
+
+        AtomicInteger allowEvents = new AtomicInteger();
+        service.addAccessControlListener((id, action, decision, elapsed) -> allowEvents.incrementAndGet());
+        assertTrue(service.resolveFile("dl1").isPresent());
+        assertEquals(1, allowEvents.get());
+
+        service.setAccessControl(new TokenAccessControl("tk"));
+        AtomicInteger denyEvents = new AtomicInteger();
+        service.addAccessControlListener((id, action, decision, elapsed) -> denyEvents.incrementAndGet());
+        assertThrows(AccessDeniedException.class, () -> service.resolveFile("dl1"));
+        assertEquals(1, denyEvents.get());
     }
 
     private File writeMergedFile(String id) throws Exception {

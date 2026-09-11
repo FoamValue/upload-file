@@ -199,6 +199,11 @@ GET /download?identifier=<identifier>
 
 始终携带 `Accept-Ranges: bytes` 与 `Content-Disposition: attachment`。
 
+> 说明（rc.6）：下载失败（缺 `identifier` 的 `400`、文件不存在的 `404`、Range 不可满足的 `416`、访问被拒的
+> `401`/`403`）与上传端点一致，返回 JSON 失败体并携带符号错误码（`MISSING_IDENTIFIER` /
+> `UPLOAD_NOT_FOUND` / `RANGE_NOT_SATISFIABLE` / `ACCESS_DENIED`），形态同样由 `http.error-body` 选择；
+> `416` 仍携带 `Content-Range: bytes */<size>`。
+
 > 兼容性：小于 2GB 的内容在 Servlet 3.0 容器即可下载；大于 2GB 的区间响应使用
 > `setContentLengthLong`，需要 Servlet 3.1+ 容器。
 
@@ -211,8 +216,11 @@ GET /download?identifier=<identifier>
 响应体形态由 `upload-file.http.error-body`（servlet init-param `http.error-body`）选择：
 
 - `legacy`（默认）—— rc.5 端点专用模型（`UploadProgress.empty` / `UploadResult.error` /
-  `MergeStatus.none`）；
+  `MergeStatus.none`；下载端点错误亦渲染为 `UploadResult.error`）；
 - `standard` —— 统一 `UploadHttpError{code,status,message,identifier,action}`。
+
+> 上传与下载两个端点共用同一渲染器与符号码目录。取消不存在任务的状态由 `upload-file.http.cancel-not-found-status`
+> （servlet init-param `cancel-not-found-status`）控制。
 
 | 错误码 | 典型 HTTP | 含义 |
 | --- | --- | --- |

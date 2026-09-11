@@ -7,6 +7,51 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [Unreleased]
+
+针对 rc.6 的文档/实现一致性修复（审查发现）。
+
+### 修复
+
+- **`AccessControl.check()` 改为 `default` 方法**：新实现现在可以只覆写 `decide(...)`，无需再实现已废弃的
+  `check(...)`（此前 `check()` 为抽象方法，与「增量桥接」承诺不符）。既有只覆写 `check()` 的实现行为不变。
+  注意：`AccessControl` 因此**不再是函数式接口**，原先用 lambda 实现 `check()` 的写法需改为匿名类或改覆写
+  `decide(...)`（`AccessControlListener` 仍为函数式接口，不受影响）。
+- **下载端点纳入统一错误契约**：`DownloadServlet` 的 `400`/`404`/`416`/`401`/`403` 失败改为返回 JSON 失败体
+  （由 `http.error-body` 选择形态），并携带符号错误码；此前使用容器 `sendError`（HTML 页），
+  `RANGE_NOT_SATISFIABLE` 目录码从未被真正发出。
+- **下载一次请求只做一次访问决策**：消除 `resolveFile` 与 `resolveFileName` 的重复门控（此前一次下载触发
+  两次 `AccessControlListener` 事件、策略执行两次）。
+
+### 新增
+
+- **带访问门控的读接口**：`ResumableUploadService.getTask(identifier, token)` 与
+  `isChunkUploaded(identifier, index, token)`；原无 token 版本保持不变，并在 Javadoc 中明确其**不执行**
+  访问门控，供可信的服务端 confirm 流程使用。
+- **端点 Bean 可覆盖**：`uploadFileServlet` / `downloadFileServlet` 作为 Bean 暴露，宿主可按类型覆写 Servlet
+  实例，或按 Bean 名 `uploadFileServletRegistration` / `downloadFileServletRegistration` 覆写注册。
+- **纯 Servlet 访问可观测**：`UploadFileContext` 新增 init-param `observability.access-log`，为上传/下载服务
+  注册结构化访问日志监听器，行为与 starter 的 `observability.access-log` 一致。
+- **企业化接线示例**：`example/upload-file-boot4-demo` 新增 `EnterpriseWiringConfig`（`enterprise` profile），
+  演示覆写 `decide()` 返回 `AccessDecision.deny(403, ...)` 与 `AccessControlListener` 审计。
+
+### 构建
+
+- **发布修复**：父 POM 的 `maven.deploy.skip=true` 仅应作用于聚合器，但会被所有模块继承；现为 7 个库模块
+  （core/servlet/servlet-jakarta/starter/starter-jakarta/store-jdbc/store-redis）显式覆盖为 `false`，确保
+  `mvn deploy` 真正发布库产物（此前可能被继承值整体跳过）。
+- **CI**：新增 GitHub Actions（JDK 17/21 矩阵，全量 `mvn verify`）。
+
+### 文档
+
+- README（中/英）顶部新增 rc.6 breaking 默认升级提示；特性列表补齐 rc.6 能力；澄清纯 Servlet init-param
+  与 Spring 属性**并非同名**（`max-chunk-size` ↔ `chunk.max-size`、`http.cancel-not-found-status` ↔
+  `cancel-not-found-status`）。
+- API（中/英）补充下载端点错误体与符号码、两个端点的渲染器一致性说明。
+- README（中/英）新增「自研 MVC 端点 → 官方 Servlet」迁移向导（坐标/差异矩阵、breaking 默认一行配置、
+  `check()`→`decide()` 迁移片段、最小暴露建议），并说明 `upload-file-store-jdbc`/`redis` 为 optional 依赖、
+  需显式引入。
+
 ## [1.0.0-rc.6] - 2026-09-05
 
 **HTTP 层商业化可接入版本（安全与审计对齐）。** 解决 path-finder ADR-001/UPGRADE 评估结论（`-jakarta` 产物

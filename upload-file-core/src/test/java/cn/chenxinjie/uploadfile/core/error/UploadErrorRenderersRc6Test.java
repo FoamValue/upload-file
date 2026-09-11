@@ -9,6 +9,7 @@ package cn.chenxinjie.uploadfile.core.error;
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.ChecksumMismatchException;
 import cn.chenxinjie.uploadfile.core.exception.QuotaExceededException;
+import cn.chenxinjie.uploadfile.core.exception.UploadErrorCode;
 import cn.chenxinjie.uploadfile.core.exception.UploadErrorCodes;
 import cn.chenxinjie.uploadfile.core.exception.UploadMergeConflictException;
 import cn.chenxinjie.uploadfile.core.exception.UploadTaskNotFoundException;
@@ -37,7 +38,21 @@ public class UploadErrorRenderersRc6Test {
         assertEquals(UploadErrorCodes.UPLOAD_MERGE_CONFLICT, new UploadMergeConflictException("x").code());
         assertEquals(UploadErrorCodes.ACCESS_DENIED, new AccessDeniedException("x").code());
         assertEquals(UploadErrorCodes.QUOTA_EXCEEDED, new QuotaExceededException("x").code());
+        // codeOf(Throwable) resolves typed failures through the catalog, everything else is a server fault.
+        assertEquals(UploadErrorCodes.UPLOAD_VALIDATION, UploadErrorRenderers.codeOf(new UploadValidationException("x")));
+        assertEquals(UploadErrorCodes.QUOTA_EXCEEDED, UploadErrorRenderers.codeOf(new QuotaExceededException("x")));
         assertEquals(UploadErrorCodes.UPLOAD_SERVER_ERROR, UploadErrorRenderers.codeOf(new IllegalStateException("boom")));
+    }
+
+    @Test
+    public void unknownErrorCodeImplementorFallsBackToServerError() {
+        UploadErrorCode custom = new UploadErrorCode() {
+            @Override
+            public int getHttpStatusCode() {
+                return 418;
+            }
+        };
+        assertEquals(UploadErrorCodes.UPLOAD_SERVER_ERROR, custom.code());
     }
 
     @Test
@@ -58,7 +73,14 @@ public class UploadErrorRenderersRc6Test {
                 instanceof UploadProgress);
         assertTrue(legacy.render("merge", "id1", 409, UploadErrorCodes.UPLOAD_MERGE_CONFLICT, "Merge failed")
                 instanceof UploadResult);
+        assertTrue(legacy.render("cancel", "id1", 404, UploadErrorCodes.UPLOAD_NOT_FOUND, "nope")
+                instanceof UploadResult);
+        // rc.6: the download endpoint shares the legacy UploadResult error body.
+        assertTrue(legacy.render("download", "id1", 416, UploadErrorCodes.RANGE_NOT_SATISFIABLE, "range")
+                instanceof UploadResult);
         assertTrue(legacy.render("mergeStatus", "id1", 400, UploadErrorCodes.UPLOAD_NOT_FOUND, "nope")
+                instanceof MergeStatus);
+        assertTrue(legacy.render("mergeAsync", "id1", 409, UploadErrorCodes.UPLOAD_MERGE_CONFLICT, "busy")
                 instanceof MergeStatus);
     }
 

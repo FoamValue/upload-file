@@ -76,7 +76,9 @@ public final class UploadErrorRenderers {
     private static final class LegacyRenderer implements UploadErrorRenderer {
         @Override
         public Object render(String action, String identifier, int status, String code, String message) {
-            if (AccessControl.ACTION_MERGE.equals(action) || AccessControl.ACTION_CANCEL.equals(action)) {
+            if (AccessControl.ACTION_MERGE.equals(action)
+                    || AccessControl.ACTION_CANCEL.equals(action)
+                    || AccessControl.ACTION_DOWNLOAD.equals(action)) {
                 return UploadResult.error(identifier, message);
             }
             if (AccessControl.ACTION_MERGE_ASYNC.equals(action)

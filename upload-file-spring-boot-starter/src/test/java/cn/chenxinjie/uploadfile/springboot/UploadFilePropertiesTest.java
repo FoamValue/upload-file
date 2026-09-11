@@ -60,6 +60,15 @@ class UploadFilePropertiesTest {
         assertFalse(properties.getCleanup().isUseRedisLock());
         assertTrue(properties.getObservability().isLogStats());
         assertFalse(properties.getMigration().isEnabled());
+
+        // rc.6 additions
+        assertTrue(properties.getEndpoint().isEnabled());
+        assertTrue(properties.getEndpoint().isUploadEnabled());
+        assertFalse(properties.getEndpoint().isDownloadEnabled());
+        assertEquals("legacy", properties.getHttp().getErrorBody());
+        assertEquals(404, properties.getHttp().getCancelNotFoundStatus());
+        assertEquals("component", properties.getMultipart().getStrategy());
+        assertFalse(properties.getObservability().isAccessLog());
     }
 
     @Test
@@ -142,5 +151,22 @@ class UploadFilePropertiesTest {
         assertTrue(properties.getCleanup().isUseRedisLock());
         assertFalse(properties.getObservability().isLogStats());
         assertTrue(properties.getMigration().isEnabled());
+
+        // rc.6 additions
+        properties.getEndpoint().setEnabled(false);
+        properties.getEndpoint().setUploadEnabled(false);
+        properties.getEndpoint().setDownloadEnabled(true);
+        properties.getHttp().setErrorBody("standard");
+        properties.getHttp().setCancelNotFoundStatus(200);
+        properties.getMultipart().setStrategy("unlimited");
+        properties.getObservability().setAccessLog(true);
+
+        assertFalse(properties.getEndpoint().isEnabled());
+        assertFalse(properties.getEndpoint().isUploadEnabled());
+        assertTrue(properties.getEndpoint().isDownloadEnabled());
+        assertEquals("standard", properties.getHttp().getErrorBody());
+        assertEquals(200, properties.getHttp().getCancelNotFoundStatus());
+        assertEquals("unlimited", properties.getMultipart().getStrategy());
+        assertTrue(properties.getObservability().isAccessLog());
     }
 }

@@ -11,9 +11,14 @@
 > 反馈来源：`doc/user-feedback/upload-file-usage-feedback.md`（§7 P0-2/P1-4/P1-7）与 path-finder
 > ADR/UPGRADE 评估结论。
 >
-> ✅ **状态：已在 `1.0.0-rc.6` 实现并发布。** T25–T34 全部完成：端点控制、增量式决策返回 `AccessControl` +
-> 审计钩子、符号错误码 + 统一错误体、multipart 策略、servlet 行为收敛、迁移向导均已交付——见
+> ✅ **状态：`1.0.0-rc.6` 主体已实现并发布。** T25–T31、T34 完成：端点控制、增量式决策返回 `AccessControl` +
+> 审计钩子、符号错误码 + 统一错误体、multipart 策略、servlet 行为收敛均已交付——见
 > [更新日志](../CHANGELOG.zh-CN.md)。
+>
+> ⚠️ **未完成项（后续补做）**：T32 的「自研 MVC 端点 → 官方 Servlet」迁移向导（坐标/差异矩阵、breaking 默认
+> 一行配置、`check()`→`decide()` 迁移片段）尚未成文；T33 的企业化接线目前仅落在 `boot4-demo` 的
+> `application.yml` 注释，尚缺计划中的 demo 配置类（`AccessControl.decide()` + `AccessDecision.deny(403,...)`
+> + `AccessControlListener` 审计示例）。
 
 ## 一、目标与范围
 

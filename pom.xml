@@ -62,7 +62,8 @@
         <maven.compiler.release>8</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
 
-        <!-- The aggregator parent is not published; prevents the default deploy from failing on missing distributionManagement -->
+        <!-- The aggregator parent itself is not published (each library module overrides this to false
+             and deploys a flattened POM, so no consumer needs the parent from the repository). -->
         <maven.deploy.skip>true</maven.deploy.skip>
 
         <gson.version>2.10.1</gson.version>

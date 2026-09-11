@@ -11,6 +11,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 > 🚧 Status: **Pre-release** `1.0.0-rc.6` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
 
+> ⚠️ **rc.6 upgrade notice (breaking defaults):** the `/download` servlet is no longer registered by default
+> (minimal exposure). If you rely on the official download endpoint, set
+> `upload-file.endpoint.download-enabled=true`. Also, `GET /upload` with a missing/unknown `action` now returns
+> `400` (no longer treated as progress), and server-side failures are no longer collapsed to `400`.
+> See the [Changelog](CHANGELOG.md).
+
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
 ## Features
@@ -33,6 +39,11 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Multi-instance coordination** – optional Redis lease lock so only one instance runs the cleanup scheduler
 - **Explicit task read & cancel** – `getTask(identifier)` as the stable read for the integration "confirm" phase, and `cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` that reclaim a task's chunks and merged artifact instead of waiting for the cleanup scheduler
 - **Stable error semantics** – core failures carry an `UploadErrorCode` with a stable HTTP status (`400`/`401`/`404`/`409`/`507`) that servlet and Spring integrations map automatically
+- **Controllable endpoints (rc.6)** – `upload-file.endpoint.*` toggles the upload/download servlets; `endpoint.enabled=false` is a beans-only mode; `/download` is off by default (minimal exposure), and both the servlet instances and their registrations can be overridden by host beans
+- **Distinguishable access decisions (rc.6)** – `AccessControl.decide(...)` returns an `AccessDecision` so a denial can carry `401` (unauthenticated) or `403` (forbidden); the legacy `check(...)` is kept as a default bridge, so existing implementations need no change
+- **Audit hook & access log (rc.6)** – an optional `AccessControlListener` fires on every entry point (allow/deny + decision time), shared by the MVC and Servlet paths; `observability.access-log=true` emits a structured access line
+- **Symbolic error codes & uniform error body (rc.6)** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
+- **Multipart strategy (rc.6)** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits
 
 ## Modules
 
@@ -228,8 +239,17 @@ upload-file:
     key-prefix: upload:task:
 ```
 
-> Pure Servlet deployments configure the same options as init-params (e.g. `chunk.max-size`,
-> `cleanup.enabled`, `async-merge.enabled`, `security.token`, `max-file-size`, `quota.max-bytes`).
+> Pure Servlet deployments configure options as init-params, but the **names are not a 1:1 match with the
+> Spring properties** — use this list: the per-chunk limit is `upload-file.max-chunk-size` in Spring and
+> `chunk.max-size` as an init-param; the cancel-not-found status is `upload-file.http.cancel-not-found-status`
+> in Spring and `cancel-not-found-status` as an init-param. Other common init-params: `cleanup.enabled`,
+> `cleanup.interval`, `cleanup.task-ttl`, `async-merge.enabled`, `security.token`, `security.header-name`,
+> `max-file-size`, `quota.max-bytes`, `http.error-body`.
+>
+> **Optional store dependencies:** `upload-file-store-jdbc` / `upload-file-store-redis` are `optional`
+> dependencies of the starter and are **not** pulled in transitively. To use `metadata-store=jdbc` /
+> `redis` you must add the matching artifact explicitly, otherwise the auto-configuration logs a warning
+> and falls back to the `file`/`memory` store (which looks like "the setting had no effect").
 
 ## Access Control
 
@@ -240,8 +260,10 @@ without a token fails fast at startup so a misconfiguration never silently opens
 When security is off (the default), behavior is unchanged.
 
 > **Existing-login integrations:** to reuse your own session (Bearer/SSO) instead of a shared token,
-> implement the `AccessControl` SPI once and delegate `check(...)` to your principal — the core invokes
-> it at every endpoint. A Spring Security filter in front of `/upload` also works and is what most
+> implement the `AccessControl` SPI once and override `decide(...)` to return an `AccessDecision`
+> (`deny(403, ...)` distinguishes forbidden from unauthenticated) — the core invokes it at every endpoint.
+> Legacy implementations may still override `check(...)` only (a `@Deprecated` default method since rc.6,
+> bridged through `decide()`). A Spring Security filter in front of `/upload` also works and is what most
 > single-tenant integrations do; the component only enforces its own SPI when it is installed.
 
 ## Integration guidance (since 1.0.0-rc.4)
@@ -322,6 +344,76 @@ The official servlet applies this mapping and returns a JSON body automatically.
 unsatisfiable ranges, so integrations that serve their own storage (e.g. files that were moved out of
 the component during the confirm phase) can reuse the parser instead of rewriting the range logic.
 Downloading a *component-merged* artifact is still best done through the official `/download` endpoint.
+
+## Migration guide: hand-rolled MVC endpoints → official Servlet (rc.6)
+
+For integrations that currently do "manual core wiring + hand-rolled MVC endpoints" (e.g. path-finder),
+the official HTTP layer is now adoptable on demand. The matrices and snippets below tell you which
+switches to flip and which files to touch.
+
+### 1. Pick the artifact (coordinate matrix)
+
+| Stack | Servlet artifact | Starter artifact |
+| --- | --- | --- |
+| Spring Boot 2.x / Servlet 3/4 (`javax`) | `upload-file-servlet` | `upload-file-spring-boot-starter` |
+| Spring Boot 3/4 / Tomcat 10+ (`jakarta`) | `upload-file-servlet-jakarta` | `upload-file-spring-boot-starter-jakarta` |
+
+A `javax` artifact and its `-jakarta` twin **must not coexist on one classpath**; the FQCNs and
+`upload-file.*` properties are identical, so switching is a coordinate swap only.
+
+### 2. Difference matrix (hand-rolled vs official rc.6)
+
+| Aspect | Hand-rolled MVC | Official Servlet (rc.6) | How to align |
+| --- | --- | --- | --- |
+| Success body | business envelope `{code,message,data}` | bare JSON (`UploadProgress`/`MergeStatus`/`UploadResult`) | branch on the component endpoints, or keep your own |
+| Failure body | business envelope | `legacy` (default, per-endpoint models) or `standard` (`UploadHttpError`) | need your own envelope → provide an `UploadErrorRenderer` bean |
+| Denial status | always `401` | `401` (unauthenticated) / `403` (forbidden) | override `AccessControl.decide()` returning an `AccessDecision` |
+| `GET /upload` missing/unknown action | your own handling | `400` (`MISSING_ACTION`/`UPLOAD_UNKNOWN_ACTION`) | ensure the client always sends a known `action` |
+| Server-side failure | `500` | `500` (no longer collapsed to `400`) | — |
+| Cancel a missing task | your own | `404` by default; `http.cancel-not-found-status=200` for idempotent | set as needed |
+| Download endpoint | hand-rolled Range | `/download`, **not registered by default** | `endpoint.download-enabled=true` |
+| Multipart limits | container/framework config | `multipart.strategy` | `component`/`spring`/`unlimited` |
+| Endpoint takeover | your MVC wins | servlet registered; overridable by beans | `endpoint.enabled=false` (beans-only) |
+
+### 3. One-line config for the breaking defaults
+
+```yaml
+upload-file:
+  endpoint:
+    download-enabled: true    # restore the official download endpoint (off by default in rc.6)
+  http:
+    error-body: legacy        # or standard; for a business envelope provide an UploadErrorRenderer
+    cancel-not-found-status: 404
+  multipart:
+    strategy: component       # with spring, raise spring.servlet.multipart.max-file-size accordingly
+```
+
+### 4. Additive AccessControl migration
+
+A legacy implementation that only overrides `check(...)` still compiles and runs (a `@Deprecated`
+default method since rc.6, bridged through `decide()`); new implementations should override `decide()`:
+
+```java
+AccessControl ac = new AccessControl() {   // note: since rc.6 AccessControl is no longer a functional interface
+    @Override
+    public AccessDecision decide(String id, String action, String token) {
+        if (!ownerOf(token).equals(ownerOf(id))) {
+            return AccessDecision.deny(403, "owner mismatch");   // 401 unauthenticated / 403 forbidden
+        }
+        return AccessDecision.allow();
+    }
+};
+```
+
+Audit: implement `AccessControlListener` (auto-wired by the starter; plain Servlet uses
+`observability.access-log` or a manual `addAccessControlListener`) and the same allow/deny events reach
+both the MVC and Servlet paths.
+
+### 5. Minimal-exposure recommendations
+
+- Upload only: keep `endpoint.download-enabled=false` (the default) and keep your own download;
+- Audit: `observability.access-log=true` or register an `AccessControlListener`;
+- Authorization: override `decide()` to delegate to your session rather than wrapping another layer outside.
 
 ## HTTP API Overview
 

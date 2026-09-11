@@ -208,6 +208,11 @@ Responses:
 
 `Accept-Ranges: bytes` and `Content-Disposition: attachment` are always sent.
 
+> Note (rc.6): download failures (missing `identifier` → `400`, file not found → `404`, unsatisfiable
+> `Range` → `416`, access denied → `401`/`403`) now return a JSON failure body with a symbolic code
+> (`MISSING_IDENTIFIER` / `UPLOAD_NOT_FOUND` / `RANGE_NOT_SATISFIABLE` / `ACCESS_DENIED`), shaped by
+> `http.error-body` exactly like the upload endpoint; `416` still carries `Content-Range: bytes */<size>`.
+
 > Compatibility: content below 2 GB can be downloaded on a Servlet 3.0 container; range
 > responses above 2 GB use `setContentLengthLong`, which requires a Servlet 3.1+ container.
 
@@ -221,8 +226,12 @@ Every typed failure carries a stable symbolic code via `UploadErrorCode.code()` 
 `upload-file.http.error-body` (servlet init-param `http.error-body`):
 
 - `legacy` (default) – the rc.5 per-endpoint models (`UploadProgress.empty` /
-  `UploadResult.error` / `MergeStatus.none`);
+  `UploadResult.error` / `MergeStatus.none`; download errors also render as `UploadResult.error`);
 - `standard` – a uniform `UploadHttpError{code,status,message,identifier,action}`.
+
+> The upload and download endpoints share the same renderer and symbolic-code catalog. The status for
+> canceling a missing task is controlled by `upload-file.http.cancel-not-found-status` (servlet init-param
+> `cancel-not-found-status`).
 
 | Code | Typical HTTP | Meaning |
 | --- | --- | --- |

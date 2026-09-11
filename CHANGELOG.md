@@ -7,6 +7,58 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [Unreleased]
+
+Documentation/implementation consistency fixes for rc.6 (found during review).
+
+### Fixed
+
+- **`AccessControl.check()` is now a `default` method**: a new implementation can override `decide(...)`
+  alone and no longer has to implement the deprecated `check(...)` (which used to be abstract, contradicting
+  the "additive bridge" promise). Implementations that only override `check()` behave unchanged.
+  Note: `AccessControl` is therefore **no longer a functional interface** — a lambda that implemented
+  `check()` must become an anonymous class or override `decide(...)` instead (`AccessControlListener`
+  remains functional and is unaffected).
+- **Download endpoint joined the unified error contract**: `DownloadServlet` failures
+  (`400`/`404`/`416`/`401`/`403`) now return a JSON failure body (shape chosen by `http.error-body`) with a
+  symbolic code; previously they used the container `sendError` (HTML page), and the `RANGE_NOT_SATISFIABLE`
+  catalog code was never actually emitted.
+- **One access decision per download**: removed the duplicate gate in `resolveFile` + `resolveFileName`
+  (a single download previously fired two `AccessControlListener` events and evaluated the policy twice).
+
+### Added
+
+- **Access-gated read overloads**: `ResumableUploadService.getTask(identifier, token)` and
+  `isChunkUploaded(identifier, index, token)`. The no-token variants are unchanged and their Javadoc now
+  states explicitly that they **do not** run the access gate (intended for the trusted server-side confirm flow).
+- **Overridable endpoint beans**: `uploadFileServlet` / `downloadFileServlet` are exposed as beans so a host
+  can override the servlet instance by type, or the registration by the bean names
+  `uploadFileServletRegistration` / `downloadFileServletRegistration`.
+- **Plain-Servlet access observability**: `UploadFileContext` gained the `observability.access-log`
+  init-param, registering a structured access-log listener on the upload/download services, matching the
+  starter's `observability.access-log`.
+- **Commercial wiring example**: `example/upload-file-boot4-demo` gained `EnterpriseWiringConfig` (the
+  `enterprise` profile) demonstrating an `AccessControl` override returning `AccessDecision.deny(403, ...)`
+  plus an `AccessControlListener` audit.
+
+### Build
+
+- **Publishing fix**: the parent POM's `maven.deploy.skip=true` is meant for the aggregator only but was
+  inherited by every module; the seven library modules (core/servlet/servlet-jakarta/starter/
+  starter-jakarta/store-jdbc/store-redis) now override it to `false`, so `mvn deploy` actually publishes the
+  library artifacts (previously they could all be skipped by the inherited value).
+- **CI**: added GitHub Actions (JDK 17/21 matrix running the full `mvn verify`).
+
+### Documentation
+
+- README (EN/zh) gained a top-of-file rc.6 breaking-defaults upgrade notice, rc.6 feature bullets, and a
+  clarification that pure-Servlet init-params are **not** name-for-name identical to the Spring properties
+  (`max-chunk-size` ↔ `chunk.max-size`, `http.cancel-not-found-status` ↔ `cancel-not-found-status`).
+- API (EN/zh) documents the download-endpoint error bodies/symbolic codes and the shared renderer.
+- README (EN/zh) gained a "hand-rolled MVC endpoints → official Servlet" migration guide (coordinate/
+  difference matrices, one-line breaking-default config, `check()`→`decide()` snippet, minimal-exposure
+  advice) and a note that `upload-file-store-jdbc`/`redis` are optional dependencies to add explicitly.
+
 ## [1.0.0-rc.6] - 2026-09-05
 
 **Commercial HTTP-layer adoption release (security & audit alignment).** Addresses the path-finder
