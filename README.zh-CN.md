@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.6`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.7`（父 POM / 聚合器） |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.6` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.7` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
 
 > ⚠️ **rc.6 升级提示（breaking 默认）**：`/download` 默认不再注册（最小暴露面）。如依赖官方下载端点，请显式设置
 > `upload-file.endpoint.download-enabled=true`；另外 `GET /upload` 缺失/未知 `action` 现返回 `400`（不再当作 progress），
@@ -68,7 +68,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.6</version>
+    <version>1.0.0-rc.7</version>
 </dependency>
 ```
 
@@ -78,7 +78,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.6</version>
+    <version>1.0.0-rc.7</version>
 </dependency>
 ```
 
@@ -198,6 +198,10 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.http.cancel-not-found-status` | `404` | 取消不存在任务的状态码（rc.6）；`200` = 幂等回收 |
 | `upload-file.multipart.strategy` | `component` | multipart 上限（rc.6）：`component` / `spring`（跟随 `spring.servlet.multipart.*`）/ `unlimited` |
 | `upload-file.observability.access-log` | `false` | 每个入口访问决策输出一行结构化日志（rc.6） |
+| `upload-file.lock.identifier-lock` | `local` | identifier 锁提供者（rc.7）：`local`（进程内）或 `redis`（分布式，需 `upload-file-store-redis`） |
+| `upload-file.lock.acquire-timeout` | `10s` | 获取分布式 identifier 锁的等待上限，超时失败（rc.7） |
+| `upload-file.lock.ttl` | `30s` | 分布式 identifier 锁租约 TTL，持有者崩溃后自动过期（rc.7） |
+| `upload-file.quota.store` | `task-store` | 配额存储（rc.7）：`task-store`（rc.6 行为）或 `redis`（原子计数） |
 
 上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
 
@@ -441,7 +445,7 @@ mvn -pl example/upload-file-boot4-demo spring-boot:run
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.6.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.7.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
@@ -474,6 +478,7 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
+- [V1.0.0-rc.7 任务开发计划（存储正确性与扩展点一致性收口）](docs/PLAN-V1.0.0-rc.7.zh-CN.md)
 - [V1.0.0-rc.6 任务开发计划（HTTP 层商业化可接入）](docs/PLAN-V1.0.0-rc.6.zh-CN.md)
 - [V1.0.0-rc.5 任务开发计划（Spring Boot 4 / jakarta starter）](docs/PLAN-V1.0.0-rc.5.zh-CN.md)
 - [V1.0.0-rc.4 任务开发计划（反馈驱动集成优化）](docs/PLAN-V1.0.0-rc.4.zh-CN.md)

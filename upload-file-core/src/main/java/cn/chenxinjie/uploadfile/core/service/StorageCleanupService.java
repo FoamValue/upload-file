@@ -10,9 +10,13 @@ import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
+import cn.chenxinjie.uploadfile.core.store.QuotaStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLockHandle;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLockProvider;
+import cn.chenxinjie.uploadfile.core.util.StripedIdentifierLockProvider;
 
 import java.io.File;
 import java.io.IOException;
@@ -50,8 +54,9 @@ public class StorageCleanupService {
     private final File mergedFileDir;
     private final long taskTtlMillis;
     private final boolean orphanEnabled;
-    private final IdentifierLock identifierLock;
+    private volatile IdentifierLockProvider identifierLockProvider;
     private final CleanupLock cleanupLock;
+    private volatile QuotaStore quotaStore;
 
     private ScheduledExecutorService scheduler = newScheduler();
 
@@ -93,8 +98,27 @@ public class StorageCleanupService {
         this.mergedFileDir = Objects.requireNonNull(mergedFileDir, "mergedFileDir");
         this.taskTtlMillis = taskTtlMillis;
         this.orphanEnabled = orphanEnabled;
-        this.identifierLock = identifierLock;
+        this.identifierLockProvider = identifierLock == null
+                ? new StripedIdentifierLockProvider()
+                : new StripedIdentifierLockProvider(identifierLock);
         this.cleanupLock = cleanupLock;
+    }
+
+    /**
+     * Replaces the identifier-lock provider (rc.7); pass the same provider used by the
+     * {@link ResumableUploadService} so cleanup stays mutually exclusive with in-flight uploads.
+     */
+    public void setIdentifierLockProvider(IdentifierLockProvider identifierLockProvider) {
+        if (identifierLockProvider != null) {
+            this.identifierLockProvider = identifierLockProvider;
+        }
+    }
+
+    /**
+     * Optional quota store (rc.7); when set, removing an expired task releases its reservation.
+     */
+    public void setQuotaStore(QuotaStore quotaStore) {
+        this.quotaStore = quotaStore;
     }
 
     /**
@@ -220,7 +244,7 @@ public class StorageCleanupService {
             long updateTime = task.getUpdateTime();
             if (updateTime > 0 && now - updateTime > taskTtlMillis) {
                 String identifier = task.getIdentifier();
-                synchronized (lockFor(identifier)) {
+                try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                     // Re-check under the lock so a task that was refreshed by an in-flight upload
                     // while we were scanning is not wrongly deleted.
                     UploadTask current = taskStore.get(identifier).orElse(null);
@@ -229,6 +253,9 @@ public class StorageCleanupService {
                         // Remove the chunks first so no orphan chunk data is left behind.
                         chunkStorage.deleteChunks(identifier);
                         taskStore.remove(identifier);
+                        if (quotaStore != null) {
+                            quotaStore.release(identifier);
+                        }
                         run.setCleanedTasks(run.getCleanedTasks() + 1);
                     }
                 }
@@ -251,7 +278,7 @@ public class StorageCleanupService {
             if (known.contains(identifier)) {
                 continue;
             }
-            synchronized (lockFor(identifier)) {
+            try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                 // Re-check after acquiring the lock: a task may have been created while scanning.
                 if (!hasTask(identifier)) {
                     chunkStorage.deleteChunks(identifier);
@@ -268,7 +295,7 @@ public class StorageCleanupService {
                     if (known.contains(identifier)) {
                         continue;
                     }
-                    synchronized (lockFor(identifier)) {
+                    try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                         if (!hasTask(identifier)) {
                             deleteDirectory(child.toPath());
                             run.setCleanedOrphans(run.getCleanedOrphans() + 1);
@@ -277,10 +304,6 @@ public class StorageCleanupService {
                 }
             }
         }
-    }
-
-    private Object lockFor(String identifier) {
-        return identifierLock == null ? new Object() : identifierLock.forIdentifier(identifier);
     }
 
     /**

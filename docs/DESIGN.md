@@ -47,6 +47,10 @@ and the two store modules are shared unchanged by both generations.
 | `AccessControlListener` (rc.6) | Observes allow/deny (with decision elapsed time) at every service entry point, so MVC and Servlet paths share one audit hook |
 | `CleanupLock` (SPI) | Distributed lease lock so only one instance cleans at a time (`RedisCleanupLock` in the redis module) |
 | `TaskStoreMigrator` | Explicit, idempotent metadata migration between `TaskStore` implementations |
+| `IdentifierLockProvider` (rc.7) | Per-identifier serialization SPI; default `StripedIdentifierLockProvider` (in-process, rc.6-equivalent), optional `RedisIdentifierLockProvider` (distributed across instances) |
+| `QuotaStore` (rc.7) | Global capacity quota SPI; default `TaskStoreQuotaStore` (rc.6-equivalent), optional `RedisQuotaStore` (atomic Lua counter + `reconcile`) |
+| `TrustedUploadService` (rc.7) | Read-only trusted facade isolating the un-gated reads for the confirm flow |
+| `AbstractAccessControl` (rc.7) | `AccessControl` base class forcing `decide()` at compile time |
 | `CleanupStats` | Snapshot of a cleanup pass (counts, elapsed time, error) for observability |
 | `UploadErrorRenderer` / `UploadHttpError` (rc.6) | Failure-body shaping (`legacy` per-endpoint models or `standard` `UploadHttpError` + symbolic `UploadErrorCodes`) |
 | `UploadServlet` / `DownloadServlet` | HTTP integration; parse multipart / Range, extract the access token |

@@ -7,12 +7,22 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
-## [Unreleased]
+## [1.0.0-rc.7] - 2026-09-11
 
-针对 rc.6 的文档/实现一致性修复（审查发现）。
+**存储正确性与扩展点一致性收口版本。** 回应 [rc.6 迁移反馈](../doc/user-feedback/upload-file-rc6-migration-feedback.md)
+的 P0/P1：修复 `metadata-store=redis` 的索引泄漏与 `list()` N+1、starter 消费宿主 `UploadErrorRenderer` Bean、
+multipart 安全默认、新增分布式 `IdentifierLockProvider` 与原子 `QuotaStore`、受信读 API 收口、`AbstractAccessControl`
+基座，以及 starter 装配与安全默认告警。（本条目同时包含随本版发布的 rc.6 审查批次修复。）
 
 ### 修复
 
+- **`RedisTaskStore` 索引无限泄漏**（反馈 P0-1）：索引由 `SET` 改为按写入时间打分的 `ZSET`，`list()` 先按 TTL
+  修剪确定过期的条目、再对已消失的任务 key 惰性 `ZREM`，索引不再无界增长；旧 `SET` 索引在首次读写时**懒迁移**。
+- **`RedisTaskStore.list()` N+1**（反馈 P0-2）：改为单次 `MGET` 批量读取。
+- **starter 未消费宿主 `UploadErrorRenderer` Bean**（反馈 P0-3）：两个 servlet Bean 注入
+  `ObjectProvider<UploadErrorRenderer>`，宿主 Bean 优先，缺省回落 `legacy`/`standard`；与文档承诺一致。
+- **`multipart.strategy=component` 默认无上限**（反馈 P0-4）：`max-request-size` 未显式设置时按 `max-chunk-size`
+  （或 `max-file-size`）推导有界上限；三者皆未设置时保留无上限但输出 WARN。**breaking-default**（此前为无上限）。
 - **`AccessControl.check()` 改为 `default` 方法**：新实现现在可以只覆写 `decide(...)`，无需再实现已废弃的
   `check(...)`（此前 `check()` 为抽象方法，与「增量桥接」承诺不符）。既有只覆写 `check()` 的实现行为不变。
   注意：`AccessControl` 因此**不再是函数式接口**，原先用 lambda 实现 `check()` 的写法需改为匿名类或改覆写
@@ -25,6 +35,18 @@
 
 ### 新增
 
+- **分布式 identifier 串行化**（反馈 P1-1）：新增 `IdentifierLockProvider` SPI（core 默认
+  `StripedIdentifierLockProvider`，行为等价）；`upload-file-store-redis` 提供 `RedisIdentifierLockProvider`
+  （`SET NX PX` + owner 释放 + 超时重试）；属性 `upload-file.lock.identifier-lock=local|redis`、
+  `upload-file.lock.acquire-timeout`、`upload-file.lock.ttl`。
+- **原子配额**（反馈 P1-2）：新增 `QuotaStore` SPI（默认 `TaskStoreQuotaStore` 等价 rc.6）；`RedisQuotaStore`
+  以 Lua 原子 check-and-reserve，并提供 `reconcile(TaskStore)` 对账；属性 `upload-file.quota.store=task-store|redis`。
+- **受信读 API 收口**（反馈 P1-3）：新增只读 `TrustedUploadService`；`ResumableUploadService.getTask(id)` /
+  `isChunkUploaded(id,index)` 标 `@Deprecated` 并指向受信别名/门控重载，使越权误用在编译期可见。
+- **`AbstractAccessControl` 基座**（反馈 P1-4）：继承即编译期强制实现 `decide()`；新增
+  `AccessControl.ofDecide(...)` / `ofCheck(...)` 恢复函数式写法。
+- **starter 安全默认告警**（反馈 §6）：`security.enabled=false` 且无宿主 `AccessControl` Bean 时启动 WARN；
+  `ResumableDownloadService` Bean 改为 `@Lazy`，`/download` 关闭时不再于启动期构建（反馈 P2-3）。
 - **带访问门控的读接口**：`ResumableUploadService.getTask(identifier, token)` 与
   `isChunkUploaded(identifier, index, token)`；原无 token 版本保持不变，并在 Javadoc 中明确其**不执行**
   访问门控，供可信的服务端 confirm 流程使用。

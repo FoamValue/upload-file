@@ -244,7 +244,9 @@ public class StorageCleanupServiceTest {
         StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, false, lock);
         AtomicBoolean done = new AtomicBoolean(false);
         Thread t;
-        synchronized (lock.forIdentifier("lock1")) {
+        java.util.concurrent.locks.Lock held = lock.lockFor("lock1");
+        held.lock();
+        try {
             t = new Thread(() -> {
                 svc.cleanup();
                 done.set(true);
@@ -253,6 +255,8 @@ public class StorageCleanupServiceTest {
             Thread.sleep(150);
             // The cleanup pass must block while the shared lock is held.
             assertFalse(done.get());
+        } finally {
+            held.unlock();
         }
         t.join();
         assertTrue(done.get());

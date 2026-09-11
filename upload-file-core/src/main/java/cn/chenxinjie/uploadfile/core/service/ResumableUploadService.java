@@ -22,10 +22,15 @@ import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
 import cn.chenxinjie.uploadfile.core.security.AccessDecision;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
+import cn.chenxinjie.uploadfile.core.store.QuotaStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
+import cn.chenxinjie.uploadfile.core.store.TaskStoreQuotaStore;
 import cn.chenxinjie.uploadfile.core.util.ChecksumUtil;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLockHandle;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLockProvider;
 import cn.chenxinjie.uploadfile.core.util.StringUtil;
+import cn.chenxinjie.uploadfile.core.util.StripedIdentifierLockProvider;
 
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -65,7 +70,8 @@ public class ResumableUploadService {
     private final boolean verifyChecksum;
     private final boolean mergeFsync;
     private final boolean mergeAtomic;
-    private final IdentifierLock identifierLock;
+    private volatile IdentifierLockProvider identifierLockProvider;
+    private volatile QuotaStore quotaStore;
     private volatile AccessControl accessControl;
 
     /** Access-decision observers (rc.6); notified before a denial is raised. */
@@ -120,8 +126,27 @@ public class ResumableUploadService {
         this.verifyChecksum = verifyChecksum;
         this.mergeFsync = mergeFsync;
         this.mergeAtomic = mergeAtomic;
-        this.identifierLock = Objects.requireNonNull(identifierLock, "identifierLock");
+        this.identifierLockProvider = new StripedIdentifierLockProvider(
+                Objects.requireNonNull(identifierLock, "identifierLock"));
+        this.quotaStore = new TaskStoreQuotaStore(this.taskStore);
         this.accessControl = Objects.requireNonNull(accessControl, "accessControl");
+    }
+
+    /**
+     * Replaces the identifier-lock provider (rc.7), e.g. with a distributed Redis provider so that
+     * uploads/merges are serialized across instances. Pass the same provider to
+     * {@link StorageCleanupService} so cleanup stays mutually exclusive with in-flight uploads.
+     */
+    public void setIdentifierLockProvider(IdentifierLockProvider identifierLockProvider) {
+        this.identifierLockProvider = Objects.requireNonNull(identifierLockProvider, "identifierLockProvider");
+    }
+
+    /**
+     * Replaces the quota store (rc.7), e.g. with a Redis-backed atomic counter. Defaults to the
+     * task-store-derived {@link TaskStoreQuotaStore} (the rc.6 behaviour).
+     */
+    public void setQuotaStore(QuotaStore quotaStore) {
+        this.quotaStore = Objects.requireNonNull(quotaStore, "quotaStore");
     }
 
     /**
@@ -194,12 +219,6 @@ public class ResumableUploadService {
         this.maxTotalBytes = maxTotalBytes;
     }
 
-    private Object lockFor(String identifier) {
-        // Hash the identifier into a fixed-size bucket so concurrent uploads of the
-        // same file are serialized without allocating an unbounded number of locks.
-        return identifierLock.forIdentifier(identifier);
-    }
-
     /**
      * Uploads a chunk.
      *
@@ -231,7 +250,7 @@ public class ResumableUploadService {
         }
         long chunkSize = request.getChunkSize() > 0 ? request.getChunkSize() : DEFAULT_CHUNK_SIZE;
 
-        synchronized (lockFor(identifier)) {
+        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
                 // First chunk of this identifier: create the task record before storing any chunk.
@@ -336,13 +355,36 @@ public class ResumableUploadService {
     }
 
     /**
+     * Un-gated progress read for the trusted server-side confirm flow (rc.7). Prefer
+     * {@link #getProgress(String, String)} at an HTTP boundary; prefer
+     * {@link TrustedUploadService} in application code so the un-gated usage is explicit.
+     */
+    public UploadProgress getProgressTrusted(String identifier) {
+        StringUtil.requireSafeIdentifier(identifier);
+        UploadTask task = taskStore.get(identifier).orElse(null);
+        return task == null ? UploadProgress.empty(identifier) : UploadProgress.from(task);
+    }
+
+    /**
      * Returns whether the given chunk has already been uploaded.
      *
      * <p>This convenience read does <b>not</b> run the access-control gate. When the caller is
      * untrusted (e.g. an HTTP boundary), use {@link #isChunkUploaded(String, int, String)} so the
      * configured {@link AccessControl} is enforced.</p>
+     *
+     * @deprecated since 1.0.0-rc.7 — use {@link #isChunkUploaded(String, int, String)} at an HTTP
+     *             boundary, or {@link TrustedUploadService#isChunkUploaded(String, int)} in trusted
+     *             application code, so the un-gated usage is explicit.
      */
+    @Deprecated
     public boolean isChunkUploaded(String identifier, int chunkIndex) {
+        return isChunkUploadedTrusted(identifier, chunkIndex);
+    }
+
+    /**
+     * Un-gated trusted read (rc.7); see {@link TrustedUploadService}.
+     */
+    public boolean isChunkUploadedTrusted(String identifier, int chunkIndex) {
         UploadTask task = taskStore.get(identifier).orElse(null);
         return task != null && task.isUploaded(chunkIndex);
     }
@@ -370,8 +412,19 @@ public class ResumableUploadService {
      * <p>This convenience read does <b>not</b> run the access-control gate; it is intended for the
      * trusted server-side confirm flow. When the caller is untrusted, use
      * {@link #getTask(String, String)} so the configured {@link AccessControl} is enforced.</p>
+     *
+     * @deprecated since 1.0.0-rc.7 — use {@link #getTask(String, String)} at an HTTP boundary, or
+     *             {@link TrustedUploadService#getTask(String)} in trusted application code.
      */
+    @Deprecated
     public Optional<UploadTask> getTask(String identifier) {
+        return getTaskTrusted(identifier);
+    }
+
+    /**
+     * Un-gated trusted read (rc.7); see {@link TrustedUploadService}.
+     */
+    public Optional<UploadTask> getTaskTrusted(String identifier) {
         StringUtil.requireSafeIdentifier(identifier);
         return taskStore.get(identifier);
     }
@@ -407,7 +460,7 @@ public class ResumableUploadService {
     public UploadResult merge(String identifier, String token) throws IOException {
         StringUtil.requireSafeIdentifier(identifier);
         gate(identifier, AccessControl.ACTION_MERGE, token);
-        synchronized (lockFor(identifier)) {
+        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
                 throw new UploadTaskNotFoundException("Upload task not found: " + identifier);
@@ -497,7 +550,7 @@ public class ResumableUploadService {
         if (asyncExecutor == null) {
             throw new UploadValidationException("Async merge is not enabled");
         }
-        synchronized (lockFor(identifier)) {
+        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
                 throw new UploadTaskNotFoundException("Upload task not found: " + identifier);
@@ -544,6 +597,16 @@ public class ResumableUploadService {
     }
 
     /**
+     * Un-gated merge-status read for the trusted server-side confirm flow (rc.7); see
+     * {@link TrustedUploadService}.
+     */
+    public MergeStatus getMergeStatusTrusted(String identifier) {
+        StringUtil.requireSafeIdentifier(identifier);
+        UploadTask task = taskStore.get(identifier).orElse(null);
+        return task == null ? MergeStatus.none(identifier) : MergeStatus.from(task);
+    }
+
+    /**
      * Cancels an upload task and reclaims all of its data: the task record, the uploaded chunks,
      * and any merged (but not yet claimed by the integration) artifact under the identifier.
      * After cancellation the identifier can be reused for a brand-new upload.
@@ -566,7 +629,7 @@ public class ResumableUploadService {
     public boolean cancelUpload(String identifier, String token) {
         StringUtil.requireSafeIdentifier(identifier);
         gate(identifier, AccessControl.ACTION_CANCEL, token);
-        synchronized (lockFor(identifier)) {
+        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null) {
                 return false;
@@ -581,6 +644,7 @@ public class ResumableUploadService {
             chunkStorage.deleteChunks(identifier);
             deleteDirectoryQuietly(mergedFileDir.toPath().resolve(identifier));
             taskStore.remove(identifier);
+            quotaStore.release(identifier);
             return true;
         }
     }
@@ -604,7 +668,7 @@ public class ResumableUploadService {
     }
 
     private void doAsyncMerge(String identifier) {
-        synchronized (lockFor(identifier)) {
+        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
             UploadTask task = taskStore.get(identifier).orElse(null);
             if (task == null || !UploadTask.MERGE_STATE_PENDING.equals(task.mergeState())) {
                 return;
@@ -615,7 +679,7 @@ public class ResumableUploadService {
         }
         try {
             merge(identifier);
-            synchronized (lockFor(identifier)) {
+            try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                 UploadTask task = taskStore.get(identifier).orElse(null);
                 if (task != null) {
                     task.setMergeState(UploadTask.MERGE_STATE_SUCCEEDED);
@@ -624,7 +688,7 @@ public class ResumableUploadService {
                 }
             }
         } catch (Exception e) {
-            synchronized (lockFor(identifier)) {
+            try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                 UploadTask task = taskStore.get(identifier).orElse(null);
                 if (task != null) {
                     task.setMergeState(UploadTask.MERGE_STATE_FAILED);
@@ -674,18 +738,14 @@ public class ResumableUploadService {
      * incoming {@code extraBytes}. When the total would exceed the configured quota the request is
      * rejected, guarding against disk exhaustion across many uploads.
      */
-    private void checkQuota(String excludeIdentifier, long extraBytes) {
-        long used = 0;
-        for (UploadTask t : taskStore.list()) {
-            if (excludeIdentifier != null && excludeIdentifier.equals(t.getIdentifier())) {
-                continue;
-            }
-            used += Math.max(0, t.isMerged() ? t.getFinalFileSize() : t.getFileSize());
+    private void checkQuota(String identifier, long extraBytes) {
+        if (maxTotalBytes <= 0) {
+            return;
         }
         long requested = Math.max(0, extraBytes);
-        if (maxTotalBytes > 0 && used + requested > maxTotalBytes) {
-            throw new QuotaExceededException("Storage quota exceeded: used " + used
-                    + " bytes, requested " + requested + " bytes, limit " + maxTotalBytes + " bytes");
+        if (!quotaStore.tryReserve(identifier, requested, maxTotalBytes)) {
+            throw new QuotaExceededException("Storage quota exceeded: requested " + requested
+                    + " bytes, limit " + maxTotalBytes + " bytes (" + identifier + ")");
         }
     }
 

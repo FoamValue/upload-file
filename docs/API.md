@@ -233,6 +233,10 @@ Every typed failure carries a stable symbolic code via `UploadErrorCode.code()` 
 > canceling a missing task is controlled by `upload-file.http.cancel-not-found-status` (servlet init-param
 > `cancel-not-found-status`).
 
+> Since rc.7 the Spring Boot starter consumes a host `UploadErrorRenderer` bean: a provided bean wins over
+> `upload-file.http.error-body` (both endpoints). Plain-Servlet deployments set it via
+> `UploadServlet`/`DownloadServlet.setErrorRenderer(...)`.
+
 | Code | Typical HTTP | Meaning |
 | --- | --- | --- |
 | `UPLOAD_VALIDATION` | 400 | invalid parameters, metadata disagreement, size limits, missing chunks on merge |

@@ -44,6 +44,10 @@ upload-file（父 POM / 聚合器）
 | `AccessControlListener`（rc.6） | 在每个服务入口观测放行/拒绝（含决策耗时），使 MVC 与 Servlet 路径共享同一审计钩子 |
 | `CleanupLock`（SPI） | 分布式租约锁，保证同一时刻单实例清理（redis 模块提供 `RedisCleanupLock`） |
 | `TaskStoreMigrator` | 显式、幂等的 `TaskStore` 间元数据迁移 |
+| `IdentifierLockProvider`（rc.7） | 按 identifier 串行化的 SPI；默认 `StripedIdentifierLockProvider`（进程内，等价 rc.6），可选 `RedisIdentifierLockProvider`（跨实例分布式锁） |
+| `QuotaStore`（rc.7） | 全局容量配额 SPI；默认 `TaskStoreQuotaStore`（等价 rc.6），可选 `RedisQuotaStore`（Lua 原子计数 + `reconcile` 对账） |
+| `TrustedUploadService`（rc.7） | 只读受信门面，隔离无门控读，供 confirm 流程显式使用 |
+| `AbstractAccessControl`（rc.7） | `AccessControl` 抽象基类，编译期强制实现 `decide()` |
 | `CleanupStats` | 单次清理快照（条数、耗时、错误），用于可观测 |
 | `UploadErrorRenderer` / `UploadHttpError`（rc.6） | 失败响应体塑形（`legacy` 端点专用模型或 `standard` 的 `UploadHttpError` + 符号 `UploadErrorCodes`） |
 | `UploadServlet` / `DownloadServlet` | HTTP 接入，解析 multipart / Range，提取访问令牌 |

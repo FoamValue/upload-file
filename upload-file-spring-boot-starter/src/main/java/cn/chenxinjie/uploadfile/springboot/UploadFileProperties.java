@@ -86,6 +86,9 @@ public class UploadFileProperties {
     /** Redis store settings. */
     private final Redis redis = new Redis();
 
+    /** Distributed identifier-lock settings (rc.7). */
+    private final Lock lock = new Lock();
+
     public String getStorageDir() {
         return storageDir;
     }
@@ -204,6 +207,10 @@ public class UploadFileProperties {
 
     public Redis getRedis() {
         return redis;
+    }
+
+    public Lock getLock() {
+        return lock;
     }
 
     /** {@code upload-file.merge.*} */
@@ -343,12 +350,61 @@ public class UploadFileProperties {
         /** Global capacity quota in bytes, 0 or negative = off (rc.3). */
         private long maxBytes = 0;
 
+        /** Quota store (rc.7): {@code task-store} (default, rc.6 behaviour) or {@code redis} (atomic). */
+        private String store = "task-store";
+
         public long getMaxBytes() {
             return maxBytes;
         }
 
         public void setMaxBytes(long maxBytes) {
             this.maxBytes = maxBytes;
+        }
+
+        public String getStore() {
+            return store;
+        }
+
+        public void setStore(String store) {
+            this.store = store;
+        }
+    }
+
+    /** {@code upload-file.lock.*} (rc.7) */
+    public static class Lock {
+        /** Identifier-lock provider: {@code local} (default, in-process) or {@code redis} (distributed). */
+        private String identifierLock = "local";
+
+        /** How long to wait for a distributed identifier lock before failing. */
+        @DurationUnit(ChronoUnit.MILLIS)
+        private Duration acquireTimeout = Duration.ofSeconds(10);
+
+        /** Distributed identifier-lock lease TTL; auto-expires a crashed holder. */
+        @DurationUnit(ChronoUnit.MILLIS)
+        private Duration ttl = Duration.ofSeconds(30);
+
+        public String getIdentifierLock() {
+            return identifierLock;
+        }
+
+        public void setIdentifierLock(String identifierLock) {
+            this.identifierLock = identifierLock;
+        }
+
+        public Duration getAcquireTimeout() {
+            return acquireTimeout;
+        }
+
+        public void setAcquireTimeout(Duration acquireTimeout) {
+            this.acquireTimeout = acquireTimeout;
+        }
+
+        public Duration getTtl() {
+            return ttl;
+        }
+
+        public void setTtl(Duration ttl) {
+            this.ttl = ttl;
         }
     }
 

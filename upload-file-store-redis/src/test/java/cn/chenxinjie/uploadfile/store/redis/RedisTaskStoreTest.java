@@ -168,7 +168,7 @@ public class RedisTaskStoreTest {
         store.save(sampleTask("good1"));
         try (Jedis jedis = pool.getResource()) {
             jedis.set(PREFIX + "corrupt", "this is { not json");
-            jedis.sadd(PREFIX + "index", "corrupt");
+            jedis.zadd(PREFIX + "index", System.currentTimeMillis(), "corrupt");
         }
 
         assertEquals(1, store.list().size());
@@ -191,6 +191,39 @@ public class RedisTaskStoreTest {
 
         assertTrue(created.get("f1").isPresent());
         assertFalse(created.get("f2").isPresent());
+    }
+
+    @Test
+    public void ttlPrunesIndexSoItDoesNotLeak() throws Exception {
+        RedisTaskStore ttlStore = new RedisTaskStore(pool, PREFIX + "leak:", 1);
+        ttlStore.save(sampleTask("k1"));
+        ttlStore.save(sampleTask("k2"));
+
+        try (Jedis jedis = pool.getResource()) {
+            assertEquals(2, jedis.zcard(PREFIX + "leak:index"));
+        }
+
+        TimeUnit.MILLISECONDS.sleep(1600);
+        assertTrue(ttlStore.list().isEmpty());
+
+        try (Jedis jedis = pool.getResource()) {
+            assertEquals(0, jedis.zcard(PREFIX + "leak:index"));
+        }
+    }
+
+    @Test
+    public void legacySetIndexIsMigratedOnFirstUse() {
+        try (Jedis jedis = pool.getResource()) {
+            jedis.set(PREFIX + "legacy1", new com.google.gson.Gson().toJson(sampleTask("legacy1")));
+            jedis.sadd(PREFIX + "index", "legacy1");
+        }
+        // Any operation triggers the one-time SET -> ZSET migration.
+        store.save(sampleTask("legacy2"));
+
+        try (Jedis jedis = pool.getResource()) {
+            assertEquals("zset", jedis.type(PREFIX + "index"));
+        }
+        assertEquals(2, store.list().size());
     }
 
     @Test

@@ -7,12 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
-## [Unreleased]
+## [1.0.0-rc.7] - 2026-09-11
 
-Documentation/implementation consistency fixes for rc.6 (found during review).
+**Store correctness & extension-point consistency release.** Addresses the P0/P1 items of the
+[rc.6 migration feedback](../doc/user-feedback/upload-file-rc6-migration-feedback.md): fixes the
+`metadata-store=redis` index leak and `list()` N+1, makes the starter consume a host `UploadErrorRenderer`
+bean, adds a multipart safe default, a distributed `IdentifierLockProvider` and an atomic `QuotaStore`,
+consolidates the trusted read API, adds an `AbstractAccessControl` base, and adds starter wiring and
+security guardrails. (This entry also includes the rc.6 review fixes that ship in this version.)
 
 ### Fixed
 
+- **`RedisTaskStore` index leak** (feedback P0-1): the index is now a `ZSET` scored by write time; `list()`
+  first trims certainly-expired entries by TTL and lazily `ZREM`s identifiers whose task key is gone, so the
+  index no longer grows without bound; a legacy rc.6 `SET` index is lazily migrated on first use.
+- **`RedisTaskStore.list()` N+1** (feedback P0-2): now a single `MGET` batch read.
+- **Starter did not consume a host `UploadErrorRenderer` bean** (feedback P0-3): both servlet beans inject
+  `ObjectProvider<UploadErrorRenderer>`; a host bean wins, otherwise the property-selected
+  `legacy`/`standard` renderer is used — matching the documented contract.
+- **`multipart.strategy=component` was unbounded by default** (feedback P0-4): when `max-request-size` is not
+  set, a bounded limit is derived from `max-chunk-size` (or `max-file-size`); only when none is configured is
+  it left unbounded, with a WARN. **Breaking default** (was unbounded).
 - **`AccessControl.check()` is now a `default` method**: a new implementation can override `decide(...)`
   alone and no longer has to implement the deprecated `check(...)` (which used to be abstract, contradicting
   the "additive bridge" promise). Implementations that only override `check()` behave unchanged.
@@ -28,6 +43,21 @@ Documentation/implementation consistency fixes for rc.6 (found during review).
 
 ### Added
 
+- **Distributed identifier serialization** (feedback P1-1): new `IdentifierLockProvider` SPI (core default
+  `StripedIdentifierLockProvider`, behaviour-equivalent); `upload-file-store-redis` provides
+  `RedisIdentifierLockProvider` (`SET NX PX` + owner-checked release + timeout retry); properties
+  `upload-file.lock.identifier-lock=local|redis`, `upload-file.lock.acquire-timeout`, `upload-file.lock.ttl`.
+- **Atomic quota** (feedback P1-2): new `QuotaStore` SPI (default `TaskStoreQuotaStore`, equivalent to rc.6);
+  `RedisQuotaStore` does an atomic Lua check-and-reserve and offers `reconcile(TaskStore)`; property
+  `upload-file.quota.store=task-store|redis`.
+- **Trusted read API consolidation** (feedback P1-3): new read-only `TrustedUploadService`;
+  `ResumableUploadService.getTask(id)` / `isChunkUploaded(id,index)` are `@Deprecated` and point at the
+  trusted aliases / gated overloads, making accidental un-gated use visible at compile time.
+- **`AbstractAccessControl` base** (feedback P1-4): extending it forces `decide()` at compile time; new
+  `AccessControl.ofDecide(...)` / `ofCheck(...)` factories restore the functional style.
+- **Starter security guardrail** (feedback §6): a startup WARN when `security.enabled=false` and no host
+  `AccessControl` bean is present; `ResumableDownloadService` is now `@Lazy`, so it is not built at startup
+  when `/download` is off (feedback P2-3).
 - **Access-gated read overloads**: `ResumableUploadService.getTask(identifier, token)` and
   `isChunkUploaded(identifier, index, token)`. The no-token variants are unchanged and their Javadoc now
   states explicitly that they **do not** run the access gate (intended for the trusted server-side confirm flow).

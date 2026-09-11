@@ -8,6 +8,8 @@ package cn.chenxinjie.uploadfile.core.security;
 
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 
+import java.util.Objects;
+
 /**
  * SPI for access control of upload/download operations.
  *
@@ -81,5 +83,53 @@ public interface AccessControl {
     default void check(String identifier, String action, String token) throws AccessDeniedException {
         throw new UnsupportedOperationException(
                 "AccessControl.check() is deprecated since 1.0.0-rc.6; override decide(...) instead");
+    }
+
+    /**
+     * Functional form of the decision-returning contract (rc.7). Use with
+     * {@link #ofDecide(Decider)} to express a policy as a lambda without relying on
+     * {@code AccessControl} being a functional interface.
+     */
+    @FunctionalInterface
+    interface Decider {
+        AccessDecision decide(String identifier, String action, String token);
+    }
+
+    /**
+     * Functional form of the legacy exception-throwing contract (rc.7). Use with
+     * {@link #ofCheck(Checker)}.
+     */
+    @FunctionalInterface
+    interface Checker {
+        void check(String identifier, String action, String token) throws AccessDeniedException;
+    }
+
+    /**
+     * Builds an {@link AccessControl} from a decision-returning lambda (rc.7), restoring the
+     * functional style lost when {@code AccessControl} stopped being a functional interface.
+     */
+    static AccessControl ofDecide(Decider decider) {
+        Objects.requireNonNull(decider, "decider");
+        return new AccessControl() {
+            @Override
+            public AccessDecision decide(String identifier, String action, String token) {
+                return decider.decide(identifier, action, token);
+            }
+        };
+    }
+
+    /**
+     * Builds an {@link AccessControl} from a legacy exception-throwing lambda (rc.7); the lambda
+     * returns normally to allow and throws {@link AccessDeniedException} to deny.
+     */
+    static AccessControl ofCheck(Checker checker) {
+        Objects.requireNonNull(checker, "checker");
+        return new AccessControl() {
+            @Override
+            @Deprecated
+            public void check(String identifier, String action, String token) throws AccessDeniedException {
+                checker.check(identifier, action, token);
+            }
+        };
     }
 }

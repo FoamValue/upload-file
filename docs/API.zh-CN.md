@@ -222,6 +222,10 @@ GET /download?identifier=<identifier>
 > 上传与下载两个端点共用同一渲染器与符号码目录。取消不存在任务的状态由 `upload-file.http.cancel-not-found-status`
 > （servlet init-param `cancel-not-found-status`）控制。
 
+> 自 rc.7 起 Spring Boot starter 会消费宿主提供的 `UploadErrorRenderer` Bean：宿主 Bean 优先于
+> `upload-file.http.error-body`（两个端点均生效）。纯 Servlet 部署通过
+> `UploadServlet`/`DownloadServlet.setErrorRenderer(...)` 设置。
+
 | 错误码 | 典型 HTTP | 含义 |
 | --- | --- | --- |
 | `UPLOAD_VALIDATION` | 400 | 参数非法、元数据不一致、大小超限、合并缺分片 |

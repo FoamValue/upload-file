@@ -526,7 +526,9 @@ public class ResumableUploadServiceTest {
 
         AtomicBoolean completed = new AtomicBoolean(false);
         Thread t;
-        synchronized (lock.forIdentifier("lock1")) {
+        java.util.concurrent.locks.Lock held = lock.lockFor("lock1");
+        held.lock();
+        try {
             t = new Thread(() -> {
                 try {
                     svc.uploadChunk(request("lock1", 0, 1), new ByteArrayInputStream(new byte[1]));
@@ -539,6 +541,8 @@ public class ResumableUploadServiceTest {
             Thread.sleep(150);
             // The upload must block while the shared lock is held.
             assertFalse(completed.get());
+        } finally {
+            held.unlock();
         }
         t.join();
         assertTrue(completed.get());

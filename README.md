@@ -4,12 +4,17 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.6` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.7` (parent POM / aggregator) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.6` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.7` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+
+> ⚠️ **rc.7 upgrade notice (breaking default):** with `multipart.strategy=component` (the default), an unset
+> `upload-file.max-request-size` is now **derived** (bounded) from `max-chunk-size`/`max-file-size` instead of
+> leaving the container limit unbounded; set it explicitly to keep full control. `metadata-store=redis` upgrades
+> transparently — the task index is lazily migrated from a `SET` to a `ZSET`. See the [Changelog](CHANGELOG.md).
 
 > ⚠️ **rc.6 upgrade notice (breaking defaults):** the `/download` servlet is no longer registered by default
 > (minimal exposure). If you rely on the official download endpoint, set
@@ -44,6 +49,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Audit hook & access log (rc.6)** – an optional `AccessControlListener` fires on every entry point (allow/deny + decision time), shared by the MVC and Servlet paths; `observability.access-log=true` emits a structured access line
 - **Symbolic error codes & uniform error body (rc.6)** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
 - **Multipart strategy (rc.6)** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits
+- **Multipart safe default (rc.7)** – under `component`, an unset request limit is derived (bounded) from `max-chunk-size`/`max-file-size` instead of leaving the container unbounded
+- **Distributed serialization (rc.7)** – `upload-file.lock.identifier-lock=redis` uses a distributed `IdentifierLockProvider` so uploads/merges of the same identifier are serialized across instances
+- **Atomic quota (rc.7)** – `upload-file.quota.store=redis` uses an atomic `QuotaStore` counter (with `reconcile`) so concurrent uploads cannot overshoot `quota.max-bytes`
+- **Host error renderer (rc.7)** – the starter consumes a host `UploadErrorRenderer` bean (e.g. a business `ApiResponse` envelope); a bean wins over `legacy`/`standard`
+- **Trusted read API (rc.7)** – `TrustedUploadService` isolates the un-gated reads; the deprecated bare reads point at the gated overloads, so un-gated use is compile-time visible
+- **`AbstractAccessControl` (rc.7)** – extending it forces `decide()` at compile time; `AccessControl.ofDecide/ofCheck` restore the functional style
 
 ## Modules
 
@@ -70,7 +81,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.6</version>
+    <version>1.0.0-rc.7</version>
 </dependency>
 ```
 
@@ -80,7 +91,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.6</version>
+    <version>1.0.0-rc.7</version>
 </dependency>
 ```
 
@@ -204,6 +215,10 @@ while an async merge is pending/running.
 | `upload-file.http.cancel-not-found-status` | `404` | Status for canceling a missing task (rc.6); `200` = idempotent reclaim |
 | `upload-file.multipart.strategy` | `component` | Multipart limits (rc.6): `component` / `spring` (follow `spring.servlet.multipart.*`) / `unlimited` |
 | `upload-file.observability.access-log` | `false` | Log one structured access-decision line per entry-point check (rc.6) |
+| `upload-file.lock.identifier-lock` | `local` | Identifier-lock provider (rc.7): `local` (in-process) or `redis` (distributed, requires `upload-file-store-redis`) |
+| `upload-file.lock.acquire-timeout` | `10s` | How long to wait for a distributed identifier lock before failing (rc.7) |
+| `upload-file.lock.ttl` | `30s` | Distributed identifier-lock lease TTL; auto-expires a crashed holder (rc.7) |
+| `upload-file.quota.store` | `task-store` | Quota store (rc.7): `task-store` (rc.6 behaviour) or `redis` (atomic counter) |
 
 The dotted names above map to nested groups, so the same settings can be written in a grouped
 YAML form:
@@ -463,7 +478,7 @@ on a real Boot 4 (`jakarta`) runtime.
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.6.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.7.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
@@ -495,6 +510,7 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
 - [Changelog](CHANGELOG.md)
+- [V1.0.0-rc.7 Task Plan (store correctness & extension-point consistency)](docs/PLAN-V1.0.0-rc.7.md)
 - [V1.0.0-rc.6 Task Plan (commercial HTTP-layer adoption)](docs/PLAN-V1.0.0-rc.6.md)
 - [V1.0.0-rc.5 Task Plan (Spring Boot 4 / jakarta starter)](docs/PLAN-V1.0.0-rc.5.md)
 - [V1.0.0-rc.4 Task Plan (feedback-driven integration)](docs/PLAN-V1.0.0-rc.4.md)

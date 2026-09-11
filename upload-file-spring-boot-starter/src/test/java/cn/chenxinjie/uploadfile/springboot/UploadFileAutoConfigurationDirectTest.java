@@ -144,8 +144,11 @@ class UploadFileAutoConfigurationDirectTest {
                     throw new UncheckedIOException(new java.io.IOException("simulated IO failure"));
                 }
             };
+            IdentifierLock lock = new IdentifierLock();
             StorageCleanupService cleanup = config.storageCleanupService(
-                    store, failingChunks, properties, new IdentifierLock(), null);
+                    store, failingChunks, properties, lock,
+                    new cn.chenxinjie.uploadfile.core.util.StripedIdentifierLockProvider(lock),
+                    new cn.chenxinjie.uploadfile.core.store.TaskStoreQuotaStore(store), null);
             assertNotNull(cleanup);
             cleanup.stop();
         } finally {

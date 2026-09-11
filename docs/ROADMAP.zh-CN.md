@@ -9,6 +9,7 @@
 - **V1.0.0-rc.4（反馈驱动）已完成**：按 identifier 稳定读取（`getTask`）+ 显式取消（`cancelUpload` / `action=cancel`）、`UploadErrorCode` 稳定 HTTP 语义、清理与手工装配文档——见 [V1.0.0-rc.4 任务开发计划](PLAN-V1.0.0-rc.4.zh-CN.md)、[更新日志](../CHANGELOG.zh-CN.md)与 `doc/user-feedback/` 下的驱动反馈。
 - **V1.0.0-rc.5（jakarta 适配，反馈 P0-1）已完成**：官方 `-jakarta` servlet 模块与 Spring Boot **4.0.0+** starter（无缝孪生版）及 Boot 4 演示——见 [V1.0.0-rc.5 任务开发计划](PLAN-V1.0.0-rc.5.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
 - **V1.0.0-rc.6（HTTP 层商业化可接入：安全与审计对齐）已完成**：端点注册可控（`/download` 默认关闭、纯 bean 模式）、`AccessControl` 增量式决策返回（`401`/`403` 可区分）+ 审计钩子与 `access-log`、符号错误码 + 可选的 `standard` 错误体、multipart 策略化、servlet 行为收敛，以及「自研 MVC 端点 → 官方 Servlet」迁移向导——见 [V1.0.0-rc.6 任务开发计划](PLAN-V1.0.0-rc.6.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
+- **V1.0.0-rc.7（存储正确性与扩展点一致性收口，由 [rc.6 迁移反馈](../doc/user-feedback/upload-file-rc6-migration-feedback.md)驱动）已在 `1.0.0-rc.7` 实现**：Redis 索引泄漏 + `list()` N+1、starter 消费宿主 `UploadErrorRenderer` Bean、multipart 安全默认、分布式 `IdentifierLockProvider`、原子 `QuotaStore`、受信读 API 收口、`AbstractAccessControl`，以及 starter 装配与安全默认告警——见 [V1.0.0-rc.7 任务开发计划](PLAN-V1.0.0-rc.7.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
 - P1/P2 项排期待确认。
 
 ## 完整优化列表

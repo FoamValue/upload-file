@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.springboot;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderer;
 import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.model.CleanupStats;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
@@ -19,15 +20,20 @@ import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
 import cn.chenxinjie.uploadfile.core.store.MemoryTaskStore;
+import cn.chenxinjie.uploadfile.core.store.QuotaStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStore;
 import cn.chenxinjie.uploadfile.core.store.TaskStoreMigrator;
+import cn.chenxinjie.uploadfile.core.store.TaskStoreQuotaStore;
 import cn.chenxinjie.uploadfile.core.util.CleanupLock;
 import cn.chenxinjie.uploadfile.core.util.IdentifierLock;
+import cn.chenxinjie.uploadfile.core.util.IdentifierLockProvider;
+import cn.chenxinjie.uploadfile.core.util.StripedIdentifierLockProvider;
 import cn.chenxinjie.uploadfile.servlet.DownloadServlet;
 import cn.chenxinjie.uploadfile.servlet.UploadServlet;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -36,6 +42,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.web.servlet.ServletRegistrationBean;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.env.Environment;
 import org.springframework.context.annotation.Configuration;
 
@@ -79,6 +86,13 @@ public class UploadFileAutoConfiguration {
     private static final String JDBC_STORE_CLASS = "cn.chenxinjie.uploadfile.store.jdbc.JdbcTaskStore";
     private static final String REDIS_STORE_CLASS = "cn.chenxinjie.uploadfile.store.redis.RedisTaskStore";
     private static final String REDIS_LOCK_CLASS = "cn.chenxinjie.uploadfile.store.redis.RedisCleanupLock";
+    private static final String REDIS_IDENTIFIER_LOCK_CLASS =
+            "cn.chenxinjie.uploadfile.store.redis.RedisIdentifierLockProvider";
+    private static final String REDIS_QUOTA_STORE_CLASS =
+            "cn.chenxinjie.uploadfile.store.redis.RedisQuotaStore";
+
+    /** Slack added to a derived multipart request limit (boundaries/headers, rc.7). */
+    private static final long MULTIPART_OVERHEAD = 1024 * 1024;
 
     /** Writes one structured cleanup-stats log line per pass (wired when {@code observability.log-stats}). */
     private static final Consumer<CleanupStats> CLEANUP_STATS_LOG = stats -> LOG.info(
@@ -105,6 +119,23 @@ public class UploadFileAutoConfiguration {
                     "upload-file.security.enabled=true requires upload-file.security.token to be configured");
         }
         return new TokenAccessControl(security.getToken());
+    }
+
+    /**
+     * Startup guardrail (rc.7): warn when the endpoints are exposed but the effective policy is
+     * permit-all (security disabled and no host {@code AccessControl} bean), so an open endpoint is
+     * never silent. When security is enabled with a blank token, {@link #uploadFileAccessControl}
+     * already fails fast.
+     */
+    @Bean
+    public ApplicationRunner uploadFileSecurityWarning(UploadFileProperties properties, AccessControl accessControl) {
+        return args -> {
+            if (properties.getEndpoint().isEnabled() && accessControl instanceof PermitAllAccessControl) {
+                LOG.warn("upload-file: endpoints are enabled but no access control is configured "
+                        + "(upload-file.security.enabled=false and no host AccessControl bean); "
+                        + "the upload endpoint is open to anyone");
+            }
+        };
     }
 
     @Bean
@@ -169,12 +200,59 @@ public class UploadFileAutoConfiguration {
         return new IdentifierLock();
     }
 
+    /**
+     * Identifier-lock provider (rc.7): the in-process striped lock by default, or a distributed
+     * Redis lock when {@code upload-file.lock.identifier-lock=redis}. Shared by the upload service
+     * and the cleanup service so cleanup stays mutually exclusive with in-flight uploads.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public IdentifierLockProvider uploadFileIdentifierLockProvider(UploadFileProperties properties,
+                                                                  IdentifierLock identifierLock) {
+        String type = properties.getLock().getIdentifierLock();
+        if ("redis".equalsIgnoreCase(type == null ? "" : type.trim())) {
+            if (isClassPresent(REDIS_IDENTIFIER_LOCK_CLASS)) {
+                return cn.chenxinjie.uploadfile.store.redis.RedisIdentifierLockProvider.create(
+                        properties.getRedis().getHost(), properties.getRedis().getPort(),
+                        properties.getRedis().getPassword(),
+                        properties.getRedis().getKeyPrefix() + "lock:",
+                        (int) Math.max(1, properties.getLock().getTtl().getSeconds()),
+                        properties.getLock().getAcquireTimeout().toMillis());
+            }
+            LOG.warn("upload-file.lock.identifier-lock=redis but upload-file-store-redis is not on the "
+                    + "classpath; falling back to the in-process lock");
+        }
+        return new StripedIdentifierLockProvider(identifierLock);
+    }
+
+    /**
+     * Global-capacity quota store (rc.7): the task-store-derived default, or an atomic Redis counter
+     * when {@code upload-file.quota.store=redis}.
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    public QuotaStore uploadFileQuotaStore(TaskStore taskStore, UploadFileProperties properties) {
+        String store = properties.getQuota().getStore();
+        if ("redis".equalsIgnoreCase(store == null ? "" : store.trim())) {
+            if (isClassPresent(REDIS_QUOTA_STORE_CLASS)) {
+                return cn.chenxinjie.uploadfile.store.redis.RedisQuotaStore.create(
+                        properties.getRedis().getHost(), properties.getRedis().getPort(),
+                        properties.getRedis().getPassword(), properties.getRedis().getKeyPrefix() + "quota:");
+            }
+            LOG.warn("upload-file.quota.store=redis but upload-file-store-redis is not on the classpath; "
+                    + "falling back to the task-store quota");
+        }
+        return new TaskStoreQuotaStore(taskStore);
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public ResumableUploadService resumableUploadService(TaskStore taskStore,
                                                          ChunkStorage chunkStorage,
                                                          UploadFileProperties properties,
                                                          IdentifierLock identifierLock,
+                                                         IdentifierLockProvider identifierLockProvider,
+                                                         QuotaStore quotaStore,
                                                          AccessControl accessControl,
                                                          ObjectProvider<ExecutorService> asyncExecutorProvider,
                                                          ObjectProvider<AccessControlListener> accessControlListeners) {
@@ -183,6 +261,8 @@ public class UploadFileAutoConfiguration {
                 taskStore, chunkStorage, mergedDir,
                 properties.isVerifyChecksum(), properties.getMerge().isFsync(), properties.getMerge().isAtomic(),
                 identifierLock, accessControl);
+        service.setIdentifierLockProvider(identifierLockProvider);
+        service.setQuotaStore(quotaStore);
         if (properties.getMaxChunkSize() > 0) {
             service.setMaxChunkBytes(properties.getMaxChunkSize());
         }
@@ -201,6 +281,7 @@ public class UploadFileAutoConfiguration {
     }
 
     @Bean
+    @Lazy
     @ConditionalOnMissingBean
     public ResumableDownloadService resumableDownloadService(TaskStore taskStore,
                                                              UploadFileProperties properties,
@@ -219,6 +300,8 @@ public class UploadFileAutoConfiguration {
                                                        ChunkStorage chunkStorage,
                                                        UploadFileProperties properties,
                                                        IdentifierLock identifierLock,
+                                                       IdentifierLockProvider identifierLockProvider,
+                                                       QuotaStore quotaStore,
                                                        ObjectProvider<CleanupLock> cleanupLockProvider) {
         File mergedDir = Paths.get(properties.getStorageDir(), "files").toFile();
         CleanupLock cleanupLock = properties.getCleanup().isUseRedisLock() ? cleanupLockProvider.getIfAvailable() : null;
@@ -226,6 +309,8 @@ public class UploadFileAutoConfiguration {
                 taskStore, chunkStorage, mergedDir,
                 properties.getCleanup().getTaskTtl().toMillis(), properties.getCleanup().isOrphanEnabled(),
                 identifierLock, cleanupLock);
+        cleanup.setIdentifierLockProvider(identifierLockProvider);
+        cleanup.setQuotaStore(quotaStore);
         cleanup.setErrorListener(t -> LOG.warn("Upload-file storage cleanup failed", t));
         if (properties.getObservability().isLogStats()) {
             cleanup.setStatsListener(CLEANUP_STATS_LOG);
@@ -322,11 +407,15 @@ public class UploadFileAutoConfiguration {
             @Bean
             @ConditionalOnMissingBean
             public UploadServlet uploadFileServlet(ResumableUploadService uploadService,
-                                                   UploadFileProperties properties) {
+                                                   UploadFileProperties properties,
+                                                   ObjectProvider<UploadErrorRenderer> errorRendererProvider) {
                 UploadServlet servlet = new UploadServlet();
                 servlet.setUploadService(uploadService);
                 servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
-                servlet.setErrorRenderer(UploadErrorRenderers.from(properties.getHttp().getErrorBody()));
+                // rc.7: a host-provided UploadErrorRenderer bean wins over the property-selected
+                // legacy/standard renderer, so a business envelope (e.g. ApiResponse) can be plugged in.
+                servlet.setErrorRenderer(errorRendererProvider.getIfAvailable(
+                        () -> UploadErrorRenderers.from(properties.getHttp().getErrorBody())));
                 servlet.setCancelNotFoundStatus(properties.getHttp().getCancelNotFoundStatus());
                 return servlet;
             }
@@ -358,11 +447,14 @@ public class UploadFileAutoConfiguration {
             @Bean
             @ConditionalOnMissingBean
             public DownloadServlet downloadFileServlet(ResumableDownloadService downloadService,
-                                                       UploadFileProperties properties) {
+                                                       UploadFileProperties properties,
+                                                       ObjectProvider<UploadErrorRenderer> errorRendererProvider) {
                 DownloadServlet servlet = new DownloadServlet();
                 servlet.setDownloadService(downloadService);
                 servlet.setAccessTokenHeader(properties.getSecurity().getHeaderName());
-                servlet.setErrorRenderer(UploadErrorRenderers.from(properties.getHttp().getErrorBody()));
+                // rc.7: host bean wins (see uploadFileServlet).
+                servlet.setErrorRenderer(errorRendererProvider.getIfAvailable(
+                        () -> UploadErrorRenderers.from(properties.getHttp().getErrorBody())));
                 return servlet;
             }
 
@@ -400,8 +492,26 @@ public class UploadFileAutoConfiguration {
         if ("unlimited".equalsIgnoreCase(strategy)) {
             return new MultipartConfigElement(null, -1, -1, 1024 * 1024);
         }
+        // rc.7 safe default: an unset request limit must not leave the container unbounded. Derive
+        // a bounded limit from the per-chunk limit (or, failing that, the per-file limit); only when
+        // none of the three is configured do we keep -1 and warn about the DoS surface.
+        long maxRequestSize = properties.getMaxRequestSize();
+        if (maxRequestSize <= 0) {
+            if (properties.getMaxChunkSize() > 0) {
+                maxRequestSize = properties.getMaxChunkSize() + MULTIPART_OVERHEAD;
+                LOG.info("upload-file.multipart.max-request-size not set; deriving the container limit "
+                        + maxRequestSize + " from max-chunk-size");
+            } else if (properties.getMaxFileSize() > 0) {
+                maxRequestSize = properties.getMaxFileSize() + MULTIPART_OVERHEAD;
+                LOG.info("upload-file.multipart.max-request-size not set; deriving the container limit "
+                        + maxRequestSize + " from max-file-size");
+            } else {
+                LOG.warn("upload-file.multipart: max-request-size/max-chunk-size/max-file-size are all "
+                        + "unset; the container multipart limit is unbounded (DoS surface)");
+            }
+        }
         return new MultipartConfigElement(
-                null, properties.getMaxChunkSize(), properties.getMaxRequestSize(), 1024 * 1024);
+                null, properties.getMaxChunkSize(), maxRequestSize, 1024 * 1024);
     }
 
     private static long dataSizeBytes(Environment environment, String... keysAndDefault) {
