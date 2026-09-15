@@ -7,6 +7,80 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.0-rc.8] - 2026-09-15
+
+**Final pre-GA closure release (quota/lock correctness + audit context + release engineering).**
+Addresses the [rc.7 usage feedback](../doc/user-feedback/upload-file-rc7-usage-feedback.md): fixes
+`RedisQuotaStore` having no auto-reconcile, the permanent quota leak of a merged-but-unconfirmed
+task, `RedisIdentifierLockProvider` having no renewal, non-atomic `RedisTaskStore` index migration
+and its single unbounded `MGET`; closes the audit-context and `access-log`-noise items deferred from
+rc.6; and completes the GA release engineering (BOM, SOW/API freeze, binary-compat gate, SBOM).
+**After this release the API is frozen**; `1.0.0` is a version bump and announcement only.
+
+### Fixed
+
+- **`RedisQuotaStore` had no auto-reconcile** (feedback P1-1 / G16): `QuotaStore` gains a
+  `default reconcile(TaskStore)` (no-op default; `TaskStoreQuotaStore` is stateless and cannot
+  drift); `RedisQuotaStore` overrides it and rebuilds the counter atomically in one Lua script; both
+  starters **reconcile at startup** when `quota.store=redis`, correcting the under-count after a
+  Redis restart/data loss and the over-count from a leaked reservation.
+- **Permanent quota leak of a merged-but-unconfirmed task** (feedback P1-2 / G17):
+  `StorageCleanupService.cleanupOrphans` now calls `quotaStore.release(identifier)` when it deletes
+  orphan chunks / merged dirs, so a "merged, not confirmed, task key TTL-expired" identifier reaches
+  `usedBytes()==0` after one cleanup pass and no longer causes spurious 507s.
+- **Distributed lock had no renewal** (feedback P1-3 / G18): a held `RedisIdentifierLockProvider`
+  lease is renewed by a watchdog every `ttl/3` via a Lua "extend only if the owner token still
+  matches" script; `close()` stops the watchdog before the owner-checked `DEL`; a lost lease logs a
+  WARN and stops renewing. A long merge can no longer lose mutual exclusion when the TTL expires.
+- **Non-atomic `RedisTaskStore` index migration** (feedback P2-3 / G19): the `SET → ZSET` lazy
+  migration is now a single Lua script (`TYPE` → `RENAME` to a staging key → `SMEMBERS`/`ZADD`/`DEL`),
+  so a multi-instance migration or a concurrent `save()` never drops an identifier.
+- **`RedisTaskStore.list()` single `MGET` blocked on large N** (feedback P2-4 / G20): it now takes a
+  `ZRANGE` snapshot and reads in 500-per-batch `MGET` calls, so a huge index no longer monopolises
+  the single-threaded Redis for one call; the result is equivalent to rc.7.
+
+### Added
+
+- **Audit context `AccessContext` / `AccessContextHolder`** (feedback P2-1 / G21): `AccessControlListener`
+  gains a **default** 6-arg overload `onDecision(AccessContext, identifier, action, decision, elapsedNanos)`
+  that bridges to the legacy 5-arg method (existing implementations need no change); the servlet layer
+  (javax + jakarta) fills method/URI/remoteAddr/User-Agent on entry and clears it in `finally`, so an
+  audit hook can persist the same fields as a login audit.
+- **`access-log` noise reduction** (feedback P2-2 / G22): new
+  `upload-file.observability.access-log-scope` (`task` (**new default**) / `deny` / `all`); `task`
+  logs denies plus task-level events and skips the per-chunk `upload` allow, turning a 500MB/5MB
+  upload from ~100 lines into task-level logs; `all` restores the rc.7 per-decision log. The plain
+  Servlet path honours the same setting via an init-param.
+- **`TrustedUploadService` starter auto-wiring** (G23): both starters add a
+  `@ConditionalOnMissingBean` bean built from `ResumableUploadService`;
+  `upload-file.trusted-upload-service.enabled=false` disables it and a host can override it.
+- **`upload-file-bom`** (G25): a new `dependencyManagement`-only BOM covering the 7 library modules;
+  a host imports it and declares only `artifactId` (no version).
+- **Unified-envelope example** (G24): the demo `enterprise` profile shows a host `UploadErrorRenderer`
+  bean rendering `ApiResponse{success,code,message,data}` (a host bean wins over `http.error-body`).
+
+### Changed
+
+- **`upload-file.lock.renew-interval`**: new, default `ttl/3`; `lock.ttl` stays 30s by default.
+- **`observability.access-log-scope` defaults to `task`**: **breaking default** (log volume only);
+  `all` restores the rc.7 behaviour.
+
+### Build
+
+- **Binary-compatibility gate**: the root POM adds a `compat-check` profile (revapi against the rc.7
+  baseline; any non-additive change fails); CI adds a `release-gates` job.
+- **SBOM + reproducible**: the root POM adds an `sbom` profile (aggregate CycloneDX SBOM);
+  `project.build.outputTimestamp` is already configured.
+- **Version**: all modules `1.0.0-rc.7 → 1.0.0-rc.8`; new `upload-file-bom` artifact.
+
+### Docs
+
+- New [V1.0.0 SOW / API freeze](PLAN-V1.0.0.md) (GA scope, frozen API/properties, `@Deprecated`
+  retention, javax downgrade, upgrade/rollback matrix, compatibility commitments).
+- README/API/DESIGN/ROADMAP updated (both languages) for rc.8: `AccessContext`, lock renewal, quota
+  reconciliation/reclaim, atomic index migration, `access-log-scope`, BOM quick start,
+  `TrustedUploadService`, unified envelope.
+
 ## [1.0.0-rc.7] - 2026-09-11
 
 **Store correctness & extension-point consistency release.** Addresses the P0/P1 items of the

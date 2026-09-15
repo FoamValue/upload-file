@@ -17,6 +17,7 @@ import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
 import cn.chenxinjie.uploadfile.core.model.UploadTask;
+import cn.chenxinjie.uploadfile.core.security.AccessContextHolder;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
 import cn.chenxinjie.uploadfile.core.security.AccessDecision;
@@ -174,7 +175,7 @@ public class ResumableUploadService {
         AccessDecision decision = accessControl.decide(identifier, action, token);
         long elapsed = System.nanoTime() - start;
         for (AccessControlListener listener : accessControlListeners) {
-            listener.onDecision(identifier, action, decision, elapsed);
+            listener.onDecision(AccessContextHolder.current(), identifier, action, decision, elapsed);
         }
         if (!decision.allowed()) {
             throw new AccessDeniedException(decision.statusCode(), decision.reason());

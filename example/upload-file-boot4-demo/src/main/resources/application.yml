@@ -31,9 +31,17 @@ upload-file:
   http:
     error-body: standard
     # cancel-not-found-status: 200      # optional: treat canceling a missing task as an idempotent 200
-  # Structured access-decision log (one line per allow/deny on every entry point).
+  # Structured access-decision log. rc.8: scope defaults to "task" (deny + task-level events), so a
+  # large upload no longer logs one line per chunk; set "all" to restore the rc.7 per-decision log or
+  # "deny" for denies only.
   observability:
     access-log: true
+    access-log-scope: task
+  # rc.8: with the "enterprise" profile active, EnterpriseWiringConfig provides an UploadErrorRenderer
+  # bean, so every failure body is the host's ApiResponse{success,code,message,data} (the bean wins
+  # over http.error-body). Success bodies are unchanged. Try it with:
+  #   mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=enterprise
+  # then POST /upload with ?token=deny-me to receive a unified failure envelope with HTTP 403.
   # For a real owner check (401 vs 403) define an AccessControl bean that overrides decide(...)
   # and returns AccessDecision.deny(403, reason) on an ownership mismatch; an AccessControlListener
   # bean can write your own audit rows. A ready-made example lives in EnterpriseWiringConfig:

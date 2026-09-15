@@ -4,12 +4,18 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.7`（父 POM / 聚合器） |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.8`（父 POM / 聚合器）；BOM：`cn.chenxinjie:upload-file-bom:1.0.0-rc.8` |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
-| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
+| 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.7` — 正式版 `1.0.0` 发布前 API 可能调整。详见[更新日志](CHANGELOG.zh-CN.md)。
+> 🚧 状态：**Pre-release** `1.0.0-rc.8`（GA 前最后收口）— **本版合并后 API 冻结**，`1.0.0` 仅版本号与发布公告。
+> 范围与兼容承诺见 [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)与[更新日志](CHANGELOG.zh-CN.md)。
+
+> ⚠️ **rc.8 升级提示**：①`observability.access-log` 的输出默认收敛为 `task` 级（deny + 任务级事件，跳过逐分片
+> `upload` 放行，日志量由每分片一行降为任务级）；如需 rc.7 的逐决策日志，设 `observability.access-log-scope=all`。
+> ②`quota.store=redis` 现于**启动期自动对账**并修正计数漂移，行为更正确、无需额外配置。③分布式 identifier 锁新增
+> 持有期续租，长合并不再因 `lock.ttl` 到期而失去互斥（`lock.renew-interval` 可覆盖，默认 `ttl/3`）。
 
 > ⚠️ **rc.6 升级提示（breaking 默认）**：`/download` 默认不再注册（最小暴露面）。如依赖官方下载端点，请显式设置
 > `upload-file.endpoint.download-enabled=true`；另外 `GET /upload` 缺失/未知 `action` 现返回 `400`（不再当作 progress），
@@ -42,6 +48,11 @@
 - **审计钩子与访问日志（rc.6）**：可选 `AccessControlListener` 在每个入口（放行/拒绝 + 决策耗时）触发，MVC 与 Servlet 共用同一路径；`observability.access-log=true` 输出结构化访问日志
 - **符号错误码与统一错误体（rc.6）**：每个带码异常携带 `UploadErrorCodes` 中的稳定符号码；`http.error-body=standard` 输出统一 `UploadHttpError`，默认 `legacy` 保持旧端点模型
 - **multipart 策略化（rc.6）**：`multipart.strategy=component|spring|unlimited`，可在组件自管、跟随 `spring.servlet.multipart.*`、关闭容器上限之间选择
+- **配额/锁正确性收口（rc.8）**：`quota.store=redis` 启动期自动对账（`QuotaStore.reconcile`），清理回收已合并未确认任务的配额；分布式 identifier 锁持有期 watchdog 续租，长合并不再锁失效
+- **审计上下文（rc.8）**：`AccessContext` / `AccessContextHolder` 透传 method/URI/IP/UA，`AccessControlListener` 新增 6 参 `default` 重载（旧 5 参实现零改动）
+- **访问日志降噪（rc.8）**：`observability.access-log-scope=task|deny|all`，默认 `task` 跳过逐分片放行日志
+- **BOM（rc.8）**：`upload-file-bom` 统一 7 个库模块版本，宿主 `import` 后只写 `artifactId`
+- **`TrustedUploadService` 自动装配（rc.8）**：starter 默认暴露受信只读门面，宿主可覆写或经 `trusted-upload-service.enabled=false` 关闭
 
 ## 模块说明
 
@@ -60,6 +71,31 @@
 
 ## 快速开始
 
+### 方式零：BOM 统一版本（rc.8，推荐）
+
+引入 BOM 后，各模块依赖无需再写版本号，避免版本漂移：
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>cn.chenxinjie</groupId>
+            <artifactId>upload-file-bom</artifactId>
+            <version>1.0.0-rc.8</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+
+<dependencies>
+    <dependency>
+        <groupId>cn.chenxinjie</groupId>
+        <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+    </dependency>
+</dependencies>
+```
+
 ### 方式一：Spring Boot 项目（推荐）
 
 **Spring Boot 4.0.0+（或 3.x，即 jakarta 技术栈）**：使用 jakarta starter（运行期 JDK 17+）：
@@ -68,7 +104,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.7</version>
+    <version>1.0.0-rc.8</version>
 </dependency>
 ```
 
@@ -78,7 +114,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.7</version>
+    <version>1.0.0-rc.8</version>
 </dependency>
 ```
 
@@ -201,7 +237,10 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.lock.identifier-lock` | `local` | identifier 锁提供者（rc.7）：`local`（进程内）或 `redis`（分布式，需 `upload-file-store-redis`） |
 | `upload-file.lock.acquire-timeout` | `10s` | 获取分布式 identifier 锁的等待上限，超时失败（rc.7） |
 | `upload-file.lock.ttl` | `30s` | 分布式 identifier 锁租约 TTL，持有者崩溃后自动过期（rc.7） |
-| `upload-file.quota.store` | `task-store` | 配额存储（rc.7）：`task-store`（rc.6 行为）或 `redis`（原子计数） |
+| `upload-file.lock.renew-interval` | `ttl/3` | 分布式 identifier 锁持有期续租周期；`0` = 按 `ttl/3` 推导（rc.8） |
+| `upload-file.quota.store` | `task-store` | 配额存储（rc.7）：`task-store`（rc.6 行为）或 `redis`（原子计数 + 启动自动对账，rc.8） |
+| `upload-file.observability.access-log-scope` | `task` | 访问日志范围（rc.8）：`task`（deny + 任务级）/`deny`（仅 deny）/`all`（rc.7 逐决策） |
+| `upload-file.trusted-upload-service.enabled` | `true` | 是否暴露 `TrustedUploadService` Bean（rc.8；受信只读门面，仅供服务端使用） |
 
 上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
 

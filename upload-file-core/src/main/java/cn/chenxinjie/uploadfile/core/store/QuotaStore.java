@@ -37,4 +37,21 @@ public interface QuotaStore {
      * Best-effort current usage in bytes.
      */
     long usedBytes();
+
+    /**
+     * Rebuilds this store's accounting from the authoritative {@link TaskStore} (rc.8), correcting
+     * any drift (e.g. a Redis counter that lost data, or a leaked reservation whose task record is
+     * gone). The default implementation is a no-op because a store that derives usage from the
+     * task store on every call cannot drift; an external counter (e.g. {@code RedisQuotaStore})
+     * overrides this to reconcile its state.
+     *
+     * <p>Implementations must be safe to call at startup and from the cleanup scheduler. The task
+     * store is the single source of truth, so a reconciliation replaces the counter with the usage
+     * recomputed from it.</p>
+     *
+     * @param taskStore the authoritative task store; never null
+     */
+    default void reconcile(TaskStore taskStore) {
+        // Derived stores (TaskStoreQuotaStore) have nothing to reconcile.
+    }
 }

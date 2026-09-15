@@ -7,6 +7,66 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.0-rc.8] - 2026-09-15
+
+**GA 前最后收口版本（配额/锁正确性 + 审计上下文 + 发布工程）。** 回应
+[rc.7 使用反馈](../doc/user-feedback/upload-file-rc7-usage-feedback.md)：修复 `RedisQuotaStore` 无自动对账、
+已合并未确认任务的配额永久泄漏、`RedisIdentifierLockProvider` 无续租、`RedisTaskStore` 索引迁移非原子与
+`list()` 单次 `MGET`；补齐 rc.6 顺延的审计上下文与 `access-log` 降噪；完成 GA 发布工程（BOM、SOW/API 冻结、
+二进制兼容门禁、SBOM）。**本版合并后 API 冻结**，`1.0.0` 仅版本号与发布公告。
+
+### 修复
+
+- **`RedisQuotaStore` 无自动对账**（反馈 P1-1 / G16）：`QuotaStore` 新增 `default reconcile(TaskStore)`
+  （默认空实现，`TaskStoreQuotaStore` 无状态、无漂移）；`RedisQuotaStore` 覆写并以单个 Lua 脚本原子重建计数；
+  两条 starter 在 `quota.store=redis` 时**启动期自动对账**，纠正 Redis 重启/数据丢失的低估与残留预留的高估。
+- **已合并未确认任务的配额永久泄漏**（反馈 P1-2 / G17）：`StorageCleanupService.cleanupOrphans` 在删除孤儿分片 /
+  合并目录时一并 `quotaStore.release(identifier)`；「merged 未 confirm 且任务 key 已 TTL 淘汰」的 identifier
+  在清理后 `usedBytes()` 归零，不再产生 507 误报。
+- **分布式锁无续租**（反馈 P1-3 / G18）：`RedisIdentifierLockProvider` 持有期由 watchdog 按 `ttl/3`
+  周期以 Lua「仅当 owner token 匹配才 `PEXPIRE`」续租；`close()` 先停 watchdog 再按 owner 校验 `DEL`；
+  续租失败（key 已易主）记录 WARN 并放弃续租。长合并不再因锁 TTL 到期而破坏跨实例串行化。
+- **`RedisTaskStore` 索引迁移非原子**（反馈 P2-3 / G19）：`SET → ZSET` 懒迁移改为单个 Lua 脚本
+  （`TYPE` → `RENAME` 到暂存 key → `SMEMBERS`/`ZADD`/`DEL`），多实例迁移或迁移期并发 `save()` 不再丢条目。
+- **`RedisTaskStore.list()` 单次 `MGET` 大 N 阻塞**（反馈 P2-4 / G20）：先 `ZRANGE` 取快照，再按 500/批
+  分批 `MGET`，大索引不再长时间占用 Redis 单线程；结果与 rc.7 等价。
+
+### 新增
+
+- **审计上下文 `AccessContext` / `AccessContextHolder`**（反馈 P2-1 / G21）：`AccessControlListener` 新增
+  **default** 6 参重载 `onDecision(AccessContext, identifier, action, decision, elapsedNanos)`，默认桥接旧 5 参
+  方法（既有实现零改动）；servlet 层（javax + jakarta）在请求进入时填充 method/URI/remoteAddr/User-Agent、
+  `finally` 清理；审计钩子现可落库与登录审计一致的字段。
+- **`access-log` 降噪**（反馈 P2-2 / G22）：新增 `upload-file.observability.access-log-scope`
+  （`task`（**新默认**）/`deny`/`all`），`task` 记录 deny + 任务级事件、跳过逐分片 `upload` 放行，
+  500MB/5MB 上传由 ~100 行降为任务级日志；`all` 恢复 rc.7 逐决策日志。纯 Servlet 路径经 init-param 对齐。
+- **`TrustedUploadService` starter 自动装配**（G23）：两条 starter 新增 `@ConditionalOnMissingBean` Bean，
+  由 `ResumableUploadService` 构造；`upload-file.trusted-upload-service.enabled=false` 可关闭，宿主可覆写。
+- **`upload-file-bom`**（G25）：新增 `dependencyManagement` 专用 BOM，覆盖 7 个库模块；宿主 `import` 后
+  只写 `artifactId`（无版本）。
+- **统一响应信封示例**（G24）：demo 的 `enterprise` profile 演示宿主 `UploadErrorRenderer` Bean 渲染
+  `ApiResponse{success,code,message,data}`（宿主 Bean 优先于 `http.error-body`）。
+
+### 变更
+
+- **`upload-file.lock.renew-interval`**：新增，默认 `ttl/3`；`lock.ttl` 默认 30s 不变。
+- **`observability.access-log-scope` 默认 `task`**：**breaking-default**（仅日志量），`all` 恢复 rc.7 行为。
+
+### 构建
+
+- **二进制兼容门禁**：根 POM 新增 `compat-check` profile（revapi 对 rc.7 基线，非 additive 变更即失败）；
+  CI 新增 `release-gates` job。
+- **SBOM + 可复现**：根 POM 新增 `sbom` profile（CycloneDX 聚合 SBOM）；`project.build.outputTimestamp`
+  已配置。
+- **版本**：全模块 `1.0.0-rc.7 → 1.0.0-rc.8`；新增 `upload-file-bom` 产物。
+
+### 文档
+
+- 新增 [V1.0.0 SOW / API 冻结声明](PLAN-V1.0.0.zh-CN.md)（GA 范围、冻结 API/属性、`@Deprecated` 保留策略、
+  javax 降级、升级/回滚矩阵、兼容承诺）。
+- README/API/DESIGN/ROADMAP 中英同步 rc.8：`AccessContext`、锁续租、配额对账与回收、索引原子迁移、
+  `access-log-scope`、BOM 快速开始、`TrustedUploadService`、统一信封。
+
 ## [1.0.0-rc.7] - 2026-09-11
 
 **存储正确性与扩展点一致性收口版本。** 回应 [rc.6 迁移反馈](../doc/user-feedback/upload-file-rc6-migration-feedback.md)

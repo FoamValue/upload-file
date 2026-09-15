@@ -41,11 +41,12 @@ upload-file（父 POM / 聚合器）
 | `IdentifierLock` | 按 identifier 分片的定长锁，上传与清理服务共享 |
 | `AccessControl`（SPI） | 入口访问校验（默认 `PermitAllAccessControl`，共享令牌用 `TokenAccessControl`）；rc.6 起决策式（`decide()` 返回 `AccessDecision`，旧 `check()` 保留为 `@Deprecated` 桥接） |
 | `AccessDecision`（rc.6） | 访问决策结果：放行，或带显式 HTTP 状态（`401`/`403`）与原因的拒绝 |
-| `AccessControlListener`（rc.6） | 在每个服务入口观测放行/拒绝（含决策耗时），使 MVC 与 Servlet 路径共享同一审计钩子 |
+| `AccessControlListener`（rc.6） | 在每个服务入口观测放行/拒绝（含决策耗时），使 MVC 与 Servlet 路径共享同一审计钩子；rc.8 新增 `default` 6 参重载携带请求上下文 |
+| `AccessContext` / `AccessContextHolder`（rc.8） | 审计请求上下文（method/URI/remoteAddr/User-Agent）与 ThreadLocal 持有器；servlet 进入时填充、`finally` 清理，纯 core 路径为空上下文 |
 | `CleanupLock`（SPI） | 分布式租约锁，保证同一时刻单实例清理（redis 模块提供 `RedisCleanupLock`） |
 | `TaskStoreMigrator` | 显式、幂等的 `TaskStore` 间元数据迁移 |
-| `IdentifierLockProvider`（rc.7） | 按 identifier 串行化的 SPI；默认 `StripedIdentifierLockProvider`（进程内，等价 rc.6），可选 `RedisIdentifierLockProvider`（跨实例分布式锁） |
-| `QuotaStore`（rc.7） | 全局容量配额 SPI；默认 `TaskStoreQuotaStore`（等价 rc.6），可选 `RedisQuotaStore`（Lua 原子计数 + `reconcile` 对账） |
+| `IdentifierLockProvider`（rc.7） | 按 identifier 串行化的 SPI；默认 `StripedIdentifierLockProvider`（进程内，等价 rc.6），可选 `RedisIdentifierLockProvider`（跨实例分布式锁；rc.8 持有期 watchdog 续租） |
+| `QuotaStore`（rc.7） | 全局容量配额 SPI；默认 `TaskStoreQuotaStore`（等价 rc.6），可选 `RedisQuotaStore`（Lua 原子计数；rc.8 `reconcile(TaskStore)` 默认方法与启动自动对账） |
 | `TrustedUploadService`（rc.7） | 只读受信门面，隔离无门控读，供 confirm 流程显式使用 |
 | `AbstractAccessControl`（rc.7） | `AccessControl` 抽象基类，编译期强制实现 `decide()` |
 | `CleanupStats` | 单次清理快照（条数、耗时、错误），用于可观测 |
@@ -121,6 +122,25 @@ upload-file（父 POM / 聚合器）
 - 重复上传同一分片是幂等的（已记录则直接跳过）。
 - 任务存储为内存实现时跳过孤儿数据 GC（重启后任务全失，否则磁盘上每个目录都会被当作孤儿）。
 - 任务元数据携带 `schemaVersion`（当前为 `1`）；旧记录缺字段时加载归一化为 `1`，迁移会跳过高于当前版本的记录。
+
+## rc.8 正确性机制
+
+- **配额单一事实来源**：`TaskStore` 是配额的唯一事实来源。`QuotaStore.reconcile(TaskStore)`（默认空实现，
+  `TaskStoreQuotaStore` 无状态、无漂移）由 `RedisQuotaStore` 覆写，以单个 Lua 脚本原子重建计数；两条
+  starter 在 `quota.store=redis` 时于启动期自动对账。`StorageCleanupService.cleanupOrphans` 删除孤儿分片 /
+  合并目录时同步 `release(identifier)`，使「已合并未确认、任务 key 已 TTL 淘汰」的预留也被回收，不再永久泄漏。
+- **分布式锁续租**：`RedisIdentifierLockProvider` 持锁期间由 watchdog 按 `ttl/3`（`lock.renew-interval` 可覆盖）
+  以 Lua「仅当 owner token 匹配才 `PEXPIRE`」续租；`close()` 先停 watchdog 再按 owner 校验 `DEL`。续租失败
+  （锁已易主）记录 WARN 并停止续租，使长合并（如 500MB 慢盘建议 `ttl >= 120s`）不再因 TTL 到期而失去互斥。
+  `StripedIdentifierLockProvider` 为进程内 monitor，无需续租。
+- **索引原子迁移与分批读取**：`RedisTaskStore.ensureIndexMigrated` 以单个 Lua 脚本完成
+  `TYPE → RENAME(暂存 key) → SMEMBERS → ZADD → DEL`，并发 `save()` 不会丢条目；`list()` 先 `ZRANGE` 取快照，
+  再按 500/批 `MGET`，避免大索引长时间占用 Redis 单线程。
+- **审计上下文透传**：`AccessContextHolder`（ThreadLocal）由 servlet 在 `service()` 进入时填充、
+  `finally` 清理；核心服务在通知 `AccessControlListener` 时读取并传入 6 参重载，审计钩子可落库
+  method/URI/IP/UA。纯 core/MVC 调用无 HTTP 请求时使用 `AccessContext.EMPTY`（字段为 `null`），不抛异常。
+- **`access-log` 降噪**：`observability.access-log-scope` 控制日志量（`task` 默认记录 deny + 任务级事件、
+  跳过逐分片 `upload` 放行；`deny` 仅 deny；`all` 恢复 rc.7 逐决策）。
 
 ## 部署约束
 

@@ -4,12 +4,21 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.7` (parent POM / aggregator) |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.8` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0-rc.8` |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
-| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
+| Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.7` — API may change before the final `1.0.0`. See [Changelog](CHANGELOG.md).
+> 🚧 Status: **Pre-release** `1.0.0-rc.8` (final pre-GA closure) — **the API is frozen once this version is merged**;
+> `1.0.0` is a version bump and announcement only. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
+> [Changelog](CHANGELOG.md).
+
+> ⚠️ **rc.8 upgrade notice:** (1) `observability.access-log` output now defaults to `task` level (deny + task-level
+> events, skipping the per-chunk `upload` allow — one line per chunk becomes task-level logs); set
+> `observability.access-log-scope=all` for the rc.7 per-decision log. (2) `quota.store=redis` now **reconciles at
+> startup** and corrects counter drift — no extra configuration. (3) the distributed identifier lock now renews its
+> lease while held, so a long merge no longer loses mutual exclusion when `lock.ttl` expires
+> (`lock.renew-interval` overrides the cadence; default `ttl/3`).
 
 > ⚠️ **rc.7 upgrade notice (breaking default):** with `multipart.strategy=component` (the default), an unset
 > `upload-file.max-request-size` is now **derived** (bounded) from `max-chunk-size`/`max-file-size` instead of
@@ -48,6 +57,11 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Distinguishable access decisions (rc.6)** – `AccessControl.decide(...)` returns an `AccessDecision` so a denial can carry `401` (unauthenticated) or `403` (forbidden); the legacy `check(...)` is kept as a default bridge, so existing implementations need no change
 - **Audit hook & access log (rc.6)** – an optional `AccessControlListener` fires on every entry point (allow/deny + decision time), shared by the MVC and Servlet paths; `observability.access-log=true` emits a structured access line
 - **Symbolic error codes & uniform error body (rc.6)** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
+- **Quota/lock correctness closure (rc.8)** – `quota.store=redis` reconciles at startup (`QuotaStore.reconcile`) and cleanup reclaims the quota of a merged-but-unconfirmed task; the distributed identifier lock renews its lease while held, so a long merge cannot lose mutual exclusion
+- **Audit context (rc.8)** – `AccessContext` / `AccessContextHolder` propagate method/URI/IP/UA, and `AccessControlListener` gains a 6-arg `default` overload (existing 5-arg implementations need no change)
+- **Access-log noise reduction (rc.8)** – `observability.access-log-scope=task|deny|all`, defaulting to `task` (skips the per-chunk allow line)
+- **BOM (rc.8)** – `upload-file-bom` aligns all 7 library module versions; a host imports it and declares only `artifactId`
+- **`TrustedUploadService` auto-wiring (rc.8)** – the starter exposes the trusted read-only facade by default; a host can override it or disable it with `trusted-upload-service.enabled=false`
 - **Multipart strategy (rc.6)** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits
 - **Multipart safe default (rc.7)** – under `component`, an unset request limit is derived (bounded) from `max-chunk-size`/`max-file-size` instead of leaving the container unbounded
 - **Distributed serialization (rc.7)** – `upload-file.lock.identifier-lock=redis` uses a distributed `IdentifierLockProvider` so uploads/merges of the same identifier are serialized across instances
@@ -73,6 +87,31 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 ## Quick Start
 
+### Option 0: BOM for aligned versions (rc.8, recommended)
+
+Import the BOM so module dependencies need no explicit version (no version drift):
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>cn.chenxinjie</groupId>
+            <artifactId>upload-file-bom</artifactId>
+            <version>1.0.0-rc.8</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+
+<dependencies>
+    <dependency>
+        <groupId>cn.chenxinjie</groupId>
+        <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+    </dependency>
+</dependencies>
+```
+
 ### Option 1: Spring Boot project (recommended)
 
 **Spring Boot 4.0.0+ (or 3.x — the jakarta stack):** use the jakarta starter (JDK 17+ at runtime):
@@ -81,7 +120,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.7</version>
+    <version>1.0.0-rc.8</version>
 </dependency>
 ```
 
@@ -91,7 +130,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.7</version>
+    <version>1.0.0-rc.8</version>
 </dependency>
 ```
 
@@ -218,7 +257,10 @@ while an async merge is pending/running.
 | `upload-file.lock.identifier-lock` | `local` | Identifier-lock provider (rc.7): `local` (in-process) or `redis` (distributed, requires `upload-file-store-redis`) |
 | `upload-file.lock.acquire-timeout` | `10s` | How long to wait for a distributed identifier lock before failing (rc.7) |
 | `upload-file.lock.ttl` | `30s` | Distributed identifier-lock lease TTL; auto-expires a crashed holder (rc.7) |
-| `upload-file.quota.store` | `task-store` | Quota store (rc.7): `task-store` (rc.6 behaviour) or `redis` (atomic counter) |
+| `upload-file.lock.renew-interval` | `ttl/3` | Distributed identifier-lock renewal cadence while held; `0` derives `ttl/3` (rc.8) |
+| `upload-file.quota.store` | `task-store` | Quota store (rc.7): `task-store` (rc.6 behaviour) or `redis` (atomic counter + startup reconcile, rc.8) |
+| `upload-file.observability.access-log-scope` | `task` | Access-log scope (rc.8): `task` (deny + task-level) / `deny` (denies only) / `all` (rc.7 per-decision) |
+| `upload-file.trusted-upload-service.enabled` | `true` | Whether to expose the `TrustedUploadService` bean (rc.8; trusted read-only facade, server-side only) |
 
 The dotted names above map to nested groups, so the same settings can be written in a grouped
 YAML form:

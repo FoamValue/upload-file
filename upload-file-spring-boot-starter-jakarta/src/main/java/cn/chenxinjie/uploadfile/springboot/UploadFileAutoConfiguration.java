@@ -9,13 +9,16 @@ package cn.chenxinjie.uploadfile.springboot;
 import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderer;
 import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.model.CleanupStats;
+import cn.chenxinjie.uploadfile.core.security.AccessContext;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
+import cn.chenxinjie.uploadfile.core.security.AccessDecision;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import cn.chenxinjie.uploadfile.core.service.StorageCleanupService;
+import cn.chenxinjie.uploadfile.core.service.TrustedUploadService;
 import cn.chenxinjie.uploadfile.core.storage.ChunkStorage;
 import cn.chenxinjie.uploadfile.core.storage.LocalFileChunkStorage;
 import cn.chenxinjie.uploadfile.core.store.FileTaskStore;
@@ -93,6 +96,18 @@ public class UploadFileAutoConfiguration {
 
     /** Slack added to a derived multipart request limit (boundaries/headers, rc.7). */
     private static final long MULTIPART_OVERHEAD = 1024 * 1024;
+
+    /**
+     * Properties for the access-log listener. Injected via a package-private setter (not part of the
+     * public API) so the rc.6 {@code uploadFileAccessLogListener()} signature stays unchanged and
+     * the binary-compatibility gate stays green.
+     */
+    private UploadFileProperties accessLogProperties;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    void setAccessLogProperties(UploadFileProperties accessLogProperties) {
+        this.accessLogProperties = accessLogProperties;
+    }
 
     /** Writes one structured cleanup-stats log line per pass (wired when {@code observability.log-stats}). */
     private static final Consumer<CleanupStats> CLEANUP_STATS_LOG = stats -> LOG.info(
@@ -217,7 +232,9 @@ public class UploadFileAutoConfiguration {
                         properties.getRedis().getPassword(),
                         properties.getRedis().getKeyPrefix() + "lock:",
                         (int) Math.max(1, properties.getLock().getTtl().getSeconds()),
-                        properties.getLock().getAcquireTimeout().toMillis());
+                        properties.getLock().getAcquireTimeout().toMillis(),
+                        // rc.8: 0 = derive ttl/3; a positive value overrides the renewal cadence.
+                        Math.max(0, properties.getLock().getRenewInterval().toMillis()));
             }
             LOG.warn("upload-file.lock.identifier-lock=redis but upload-file-store-redis is not on the "
                     + "classpath; falling back to the in-process lock");
@@ -235,9 +252,20 @@ public class UploadFileAutoConfiguration {
         String store = properties.getQuota().getStore();
         if ("redis".equalsIgnoreCase(store == null ? "" : store.trim())) {
             if (isClassPresent(REDIS_QUOTA_STORE_CLASS)) {
-                return cn.chenxinjie.uploadfile.store.redis.RedisQuotaStore.create(
-                        properties.getRedis().getHost(), properties.getRedis().getPort(),
-                        properties.getRedis().getPassword(), properties.getRedis().getKeyPrefix() + "quota:");
+                cn.chenxinjie.uploadfile.store.redis.RedisQuotaStore quotaStore =
+                        cn.chenxinjie.uploadfile.store.redis.RedisQuotaStore.create(
+                                properties.getRedis().getHost(), properties.getRedis().getPort(),
+                                properties.getRedis().getPassword(), properties.getRedis().getKeyPrefix() + "quota:");
+                // rc.8 (G16): reconcile the atomic counter with the authoritative task store at
+                // startup, so a Redis restart/data loss (under-count) or a leaked reservation
+                // (over-count) is corrected before any upload is admitted.
+                try {
+                    quotaStore.reconcile(taskStore);
+                } catch (RuntimeException e) {
+                    LOG.warn("upload-file.quota.store=redis startup reconciliation failed; "
+                            + "the counter may be temporarily inaccurate until the next reconcile", e);
+                }
+                return quotaStore;
             }
             LOG.warn("upload-file.quota.store=redis but upload-file-store-redis is not on the classpath; "
                     + "falling back to the task-store quota");
@@ -278,6 +306,23 @@ public class UploadFileAutoConfiguration {
         }
         accessControlListeners.orderedStream().forEach(service::addAccessControlListener);
         return service;
+    }
+
+    /**
+     * Read-only, un-gated facade for trusted server-side flows (rc.8, G23), so a host no longer has
+     * to hand-write a config class to use the trusted reads. {@code @ConditionalOnMissingBean} lets
+     * a host override it, and {@code upload-file.trusted-upload-service.enabled=false} suppresses it
+     * entirely for a host that does not want the bean exposed.
+     *
+     * <p><b>Server-side only:</b> never expose this bean's un-gated reads at an HTTP boundary — use
+     * the token overloads on {@link ResumableUploadService} there.</p>
+     */
+    @Bean
+    @ConditionalOnMissingBean
+    @ConditionalOnProperty(prefix = "upload-file.trusted-upload-service", name = "enabled",
+            havingValue = "true", matchIfMissing = true)
+    public TrustedUploadService trustedUploadService(ResumableUploadService resumableUploadService) {
+        return new TrustedUploadService(resumableUploadService);
     }
 
     @Bean
@@ -371,21 +416,66 @@ public class UploadFileAutoConfiguration {
     /**
      * Structured access-decision log (rc.6), active only when {@code observability.access-log=true}.
      * Host-provided {@link AccessControlListener} beans are added in addition to this log.
+     *
+     * <p>rc.8 adds {@code observability.access-log-scope} ({@code task} default) so a large upload
+     * no longer emits one line per chunk, and includes the request context (method/URI/client
+     * address/User-Agent) in the line.</p>
      */
     @Bean
     @ConditionalOnProperty(prefix = "upload-file", name = "observability.access-log", havingValue = "true")
     public AccessControlListener uploadFileAccessLogListener() {
-        return (identifier, action, decision, elapsedNanos) -> {
-            double elapsedMs = elapsedNanos / 1_000_000.0;
-            if (decision.allowed()) {
-                LOG.info("upload-file access: action=" + action + ", identifier=" + identifier
-                        + ", decision=ALLOW, elapsedMs=" + elapsedMs);
-            } else {
-                LOG.warn("upload-file access: action=" + action + ", identifier=" + identifier
-                        + ", decision=DENY, status=" + decision.statusCode()
-                        + ", reason=" + decision.reason() + ", elapsedMs=" + elapsedMs);
+        UploadFileProperties properties = this.accessLogProperties;
+        String scope = properties == null ? null : properties.getObservability().getAccessLogScope();
+        return new AccessControlListener() {
+            @Override
+            public void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos) {
+                logAccess(AccessContext.EMPTY, identifier, action, decision, elapsedNanos, scope);
+            }
+
+            @Override
+            public void onDecision(AccessContext context, String identifier, String action,
+                                   AccessDecision decision, long elapsedNanos) {
+                logAccess(context, identifier, action, decision, elapsedNanos, scope);
             }
         };
+    }
+
+    /**
+     * Whether the {@code access-log-scope} setting admits this decision: {@code all} logs
+     * everything, {@code deny} only denies, and {@code task} (default) logs denies plus task-level
+     * allows while skipping the per-chunk {@code upload} allow.
+     */
+    static boolean shouldLogAccess(String scope, String action, boolean allowed) {
+        String normalized = scope == null ? "task" : scope.trim().toLowerCase();
+        if ("all".equals(normalized)) {
+            return true;
+        }
+        if (!allowed) {
+            return true;
+        }
+        if ("deny".equals(normalized)) {
+            return false;
+        }
+        // task (default): skip the noisy per-chunk upload allow.
+        return !AccessControl.ACTION_UPLOAD.equals(action);
+    }
+
+    private static void logAccess(AccessContext context, String identifier, String action,
+                                  AccessDecision decision, long elapsedNanos, String scope) {
+        if (!shouldLogAccess(scope, action, decision.allowed())) {
+            return;
+        }
+        double elapsedMs = elapsedNanos / 1_000_000.0;
+        String where = ", method=" + context.getMethod() + ", uri=" + context.getUri()
+                + ", remoteAddr=" + context.getRemoteAddr() + ", userAgent=" + context.getUserAgent();
+        if (decision.allowed()) {
+            LOG.info("upload-file access: action=" + action + ", identifier=" + identifier
+                    + ", decision=ALLOW" + where + ", elapsedMs=" + elapsedMs);
+        } else {
+            LOG.warn("upload-file access: action=" + action + ", identifier=" + identifier
+                    + ", decision=DENY, status=" + decision.statusCode()
+                    + ", reason=" + decision.reason() + where + ", elapsedMs=" + elapsedMs);
+        }
     }
 
     /** Endpoint registration gate: {@code endpoint.enabled=false} = beans-only mode (rc.6). */

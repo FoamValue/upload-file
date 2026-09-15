@@ -44,11 +44,12 @@ and the two store modules are shared unchanged by both generations.
 | `IdentifierLock` | Fixed-size striped lock keyed by identifier, shared by upload and cleanup |
 | `AccessControl` (SPI) | Entry-point access checks (`PermitAllAccessControl` default, `TokenAccessControl` for shared tokens); since rc.6 decision-based (`decide()` returning `AccessDecision`, legacy `check()` kept as a `@Deprecated` bridge) |
 | `AccessDecision` (rc.6) | Access-control decision result: allow, or deny with an explicit HTTP status (`401`/`403`) and reason |
-| `AccessControlListener` (rc.6) | Observes allow/deny (with decision elapsed time) at every service entry point, so MVC and Servlet paths share one audit hook |
+| `AccessControlListener` (rc.6) | Observes allow/deny (with decision elapsed time) at every service entry point, so MVC and Servlet paths share one audit hook; rc.8 adds a `default` 6-arg overload carrying the request context |
+| `AccessContext` / `AccessContextHolder` (rc.8) | Audit request context (method/URI/remoteAddr/User-Agent) and a ThreadLocal holder; the servlet fills it on entry and clears it in `finally`; pure-core paths use the empty context |
 | `CleanupLock` (SPI) | Distributed lease lock so only one instance cleans at a time (`RedisCleanupLock` in the redis module) |
 | `TaskStoreMigrator` | Explicit, idempotent metadata migration between `TaskStore` implementations |
-| `IdentifierLockProvider` (rc.7) | Per-identifier serialization SPI; default `StripedIdentifierLockProvider` (in-process, rc.6-equivalent), optional `RedisIdentifierLockProvider` (distributed across instances) |
-| `QuotaStore` (rc.7) | Global capacity quota SPI; default `TaskStoreQuotaStore` (rc.6-equivalent), optional `RedisQuotaStore` (atomic Lua counter + `reconcile`) |
+| `IdentifierLockProvider` (rc.7) | Per-identifier serialization SPI; default `StripedIdentifierLockProvider` (in-process, rc.6-equivalent), optional `RedisIdentifierLockProvider` (distributed across instances; rc.8 watchdog lease renewal) |
+| `QuotaStore` (rc.7) | Global capacity quota SPI; default `TaskStoreQuotaStore` (rc.6-equivalent), optional `RedisQuotaStore` (atomic Lua counter; rc.8 `reconcile(TaskStore)` default and startup auto-reconcile) |
 | `TrustedUploadService` (rc.7) | Read-only trusted facade isolating the un-gated reads for the confirm flow |
 | `AbstractAccessControl` (rc.7) | `AccessControl` base class forcing `decide()` at compile time |
 | `CleanupStats` | Snapshot of a cleanup pass (counts, elapsed time, error) for observability |
@@ -131,6 +132,32 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
   restart and every on-disk dir would otherwise look like an orphan.
 - Task metadata carries a `schemaVersion` (current = `1`); old records without the field are
   normalized to `1` on load, and migration skips records newer than the current version.
+
+## rc.8 Correctness Mechanisms
+
+- **Quota single source of truth**: the `TaskStore` is authoritative. `QuotaStore.reconcile(TaskStore)`
+  (no-op default; `TaskStoreQuotaStore` is stateless and cannot drift) is overridden by
+  `RedisQuotaStore`, which rebuilds the counter atomically in one Lua script; both starters reconcile
+  at startup when `quota.store=redis`. `StorageCleanupService.cleanupOrphans` also calls
+  `release(identifier)` when deleting orphan chunks / merged dirs, so a "merged, not confirmed, task
+  key TTL-expired" reservation is reclaimed instead of leaking forever.
+- **Distributed lock renewal**: a held `RedisIdentifierLockProvider` lease is renewed by a watchdog
+  every `ttl/3` (overridable with `lock.renew-interval`) via a Lua "extend only if the owner token
+  still matches" script; `close()` stops the watchdog before the owner-checked `DEL`. A lost lease
+  logs a WARN and stops renewing, so a long merge (e.g. 500MB on a slow disk; recommend `ttl >= 120s`)
+  no longer loses mutual exclusion when the TTL expires. `StripedIdentifierLockProvider` is an
+  in-process monitor and needs no renewal.
+- **Atomic index migration and batched reads**: `RedisTaskStore.ensureIndexMigrated` uses a single
+  Lua script (`TYPE → RENAME` to a staging key `→ SMEMBERS → ZADD → DEL`), so a concurrent `save()`
+  never drops an entry; `list()` takes a `ZRANGE` snapshot and reads in 500-per-batch `MGET` calls,
+  so a huge index no longer monopolises the single-threaded Redis.
+- **Audit context propagation**: the servlet fills `AccessContextHolder` (ThreadLocal) on entry and
+  clears it in `finally`; the core services read it and pass it to the 6-arg listener overload, so an
+  audit hook can persist method/URI/IP/UA. Pure-core/MVC callers with no HTTP request get
+  `AccessContext.EMPTY` (all fields `null`) and no exception.
+- **`access-log` noise reduction**: `observability.access-log-scope` controls log volume (`task`
+  default logs denies plus task-level events and skips the per-chunk `upload` allow; `deny` only
+  denies; `all` restores the rc.7 per-decision log).
 
 ## Deployment Notes
 

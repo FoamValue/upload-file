@@ -10,6 +10,8 @@
 - **V1.0.0-rc.5（jakarta 适配，反馈 P0-1）已完成**：官方 `-jakarta` servlet 模块与 Spring Boot **4.0.0+** starter（无缝孪生版）及 Boot 4 演示——见 [V1.0.0-rc.5 任务开发计划](PLAN-V1.0.0-rc.5.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
 - **V1.0.0-rc.6（HTTP 层商业化可接入：安全与审计对齐）已完成**：端点注册可控（`/download` 默认关闭、纯 bean 模式）、`AccessControl` 增量式决策返回（`401`/`403` 可区分）+ 审计钩子与 `access-log`、符号错误码 + 可选的 `standard` 错误体、multipart 策略化、servlet 行为收敛，以及「自研 MVC 端点 → 官方 Servlet」迁移向导——见 [V1.0.0-rc.6 任务开发计划](PLAN-V1.0.0-rc.6.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
 - **V1.0.0-rc.7（存储正确性与扩展点一致性收口，由 [rc.6 迁移反馈](../doc/user-feedback/upload-file-rc6-migration-feedback.md)驱动）已在 `1.0.0-rc.7` 实现**：Redis 索引泄漏 + `list()` N+1、starter 消费宿主 `UploadErrorRenderer` Bean、multipart 安全默认、分布式 `IdentifierLockProvider`、原子 `QuotaStore`、受信读 API 收口、`AbstractAccessControl`，以及 starter 装配与安全默认告警——见 [V1.0.0-rc.7 任务开发计划](PLAN-V1.0.0-rc.7.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
+- **V1.0.0-rc.8（GA 前最后收口：配额/锁正确性 + 审计上下文 + 发布工程，由 [rc.7 使用反馈](../doc/user-feedback/upload-file-rc7-usage-feedback.md)驱动）已在 `1.0.0-rc.8` 实现**：`RedisQuotaStore` 自动对账与合并未确认任务配额回收、`RedisIdentifierLockProvider` 续租、`RedisTaskStore` 原子迁移与分批 `list()`、审计上下文 `AccessContext`、`access-log` 降噪、`TrustedUploadService` 自动装配、统一信封示例、`upload-file-bom`、V1.0.0 SOW/API 冻结与二进制兼容门禁——见 [V1.0.0-rc.8 任务开发计划](PLAN-V1.0.0-rc.8.zh-CN.md)、[V1.0.0 SOW](PLAN-V1.0.0.zh-CN.md)与[更新日志](../CHANGELOG.zh-CN.md)。
+- **V1.0.0-rc.8 发布后进入 API 冻结**：`1.0.0`（GA）仅版本号与发布公告，不再改代码；自 `1.0.0` 起遵循语义化版本，破坏性变更只能进入 `2.0.0`。javax 线（`upload-file-servlet` / `upload-file-spring-boot-starter`）自 GA 起为维护态，`2.0.0` 收敛到 jakarta 单线。
 - P1/P2 项排期待确认。
 
 ## 完整优化列表

@@ -14,6 +14,7 @@ import redis.clients.jedis.JedisPool;
 import redis.clients.jedis.JedisPoolConfig;
 import redis.clients.jedis.Protocol;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -42,6 +43,20 @@ public class RedisQuotaStore implements QuotaStore {
                     + "if limit > 0 and newTotal > limit then return 0 end "
                     + "redis.call('HSET', KEYS[1], ARGV[1], bytes) "
                     + "redis.call('SET', KEYS[2], newTotal) "
+                    + "return 1";
+
+    /**
+     * Atomically rebuilds the usage hash and total from {@code ARGV} (rc.8): {@code ARGV} is a flat
+     * list of {@code identifier, size} pairs followed by the total. Doing the delete + writes in one
+     * script means a concurrent reserve never observes a half-rebuilt counter.
+     */
+    private static final String RECONCILE_SCRIPT =
+            "redis.call('DEL', KEYS[1]) "
+                    + "local n = math.floor((#ARGV - 1) / 2) "
+                    + "for i = 1, n do "
+                    + "  redis.call('HSET', KEYS[1], ARGV[i * 2 - 1], ARGV[i * 2]) "
+                    + "end "
+                    + "redis.call('SET', KEYS[2], ARGV[#ARGV]) "
                     + "return 1";
 
     /** Removes the identifier's reservation and subtracts it from the total (floor 0). */
@@ -108,8 +123,14 @@ public class RedisQuotaStore implements QuotaStore {
     }
 
     /**
-     * Rebuilds the usage counter from the authoritative task store, correcting any drift.
+     * Rebuilds the usage counter from the authoritative task store, correcting any drift (rc.8).
+     * This is the single-source-of-truth repair path: the caller invokes it at startup (the starter
+     * does this automatically when {@code upload-file.quota.store=redis}) and/or from the cleanup
+     * scheduler, so a Redis restart or a leaked reservation cannot leave the counter permanently
+     * wrong. The delete + rewrite happens in one Lua script, so a concurrent reserve never observes
+     * a partially rebuilt counter.
      */
+    @Override
     public void reconcile(TaskStore taskStore) {
         Map<String, String> usage = new HashMap<>();
         long total = 0;
@@ -118,12 +139,15 @@ public class RedisQuotaStore implements QuotaStore {
             usage.put(task.getIdentifier(), String.valueOf(size));
             total += size;
         }
+        // Flat ARGV: identifier, size, identifier, size, ..., total.
+        java.util.List<String> args = new ArrayList<>(usage.size() * 2 + 1);
+        for (Map.Entry<String, String> entry : usage.entrySet()) {
+            args.add(entry.getKey());
+            args.add(entry.getValue());
+        }
+        args.add(String.valueOf(total));
         try (Jedis jedis = pool.getResource()) {
-            jedis.del(hashKey);
-            if (!usage.isEmpty()) {
-                jedis.hset(hashKey, usage);
-            }
-            jedis.set(totalKey, String.valueOf(total));
+            jedis.eval(RECONCILE_SCRIPT, Arrays.asList(hashKey, totalKey), args);
         }
     }
 }

@@ -6,6 +6,7 @@
 
 package cn.chenxinjie.uploadfile.demo;
 
+import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderer;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
 import cn.chenxinjie.uploadfile.core.security.AccessDecision;
@@ -57,5 +58,36 @@ public class EnterpriseWiringConfig {
         return (identifier, action, decision, elapsedNanos) -> AUDIT.info(
                 "audit action=" + action + ", identifier=" + identifier + ", decision=" + decision
                         + ", elapsedMs=" + (elapsedNanos / 1_000_000.0));
+    }
+
+    /**
+     * rc.8 (T50) unified-envelope example: a host {@link UploadErrorRenderer} bean wins over the
+     * {@code http.error-body} property (rc.7), so every failure body is wrapped in the host's
+     * {@link ApiResponse}. Success bodies are unchanged (the component endpoints still return their
+     * own raw JSON) — only the failure body can be unified this way.
+     */
+    @Bean
+    public UploadErrorRenderer enterpriseErrorRenderer() {
+        return (action, identifier, status, code, message) -> ApiResponse.error(code, message, identifier);
+    }
+
+    /** A minimal business envelope: {@code {success, code, message, data}}. */
+    public static final class ApiResponse {
+
+        private final boolean success;
+        private final String code;
+        private final String message;
+        private final Object data;
+
+        private ApiResponse(boolean success, String code, String message, Object data) {
+            this.success = success;
+            this.code = code;
+            this.message = message;
+            this.data = data;
+        }
+
+        static ApiResponse error(String code, String message, Object data) {
+            return new ApiResponse(false, code, message, data);
+        }
     }
 }

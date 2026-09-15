@@ -240,6 +240,67 @@ GET /download?identifier=<identifier>
 | `UPLOAD_SERVER_ERROR` | 500 | 服务端故障（rc.6 起不再吞成 400） |
 | `RANGE_NOT_SATISFIABLE` | 416 | `Range` 不可满足 |
 
+## 6. 审计上下文与访问日志（rc.8）
+
+`AccessControlListener` 新增 **default** 6 参重载，携带请求上下文 `AccessContext`：
+
+```java
+public interface AccessControlListener {
+    // 旧 5 参（保留；既有实现零改动）
+    void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos);
+
+    // rc.8：默认桥接到旧 5 参；要拿请求上下文就覆写它
+    default void onDecision(AccessContext context, String identifier, String action,
+                            AccessDecision decision, long elapsedNanos) {
+        onDecision(identifier, action, decision, elapsedNanos);
+    }
+}
+```
+
+`AccessContext` 为不可变对象，字段 `method` / `uri` / `remoteAddr` / `userAgent`。Servlet 层在请求进入时经
+`AccessContextHolder.set(...)` 填充、`finally` 清理；纯 core/MVC 调用无 HTTP 请求时为 `AccessContext.EMPTY`
+（字段为 `null`，不抛异常）。
+
+**审计落库最小示例**：
+
+```java
+@Bean
+public AccessControlListener auditListener() {
+    return new AccessControlListener() {
+        @Override
+        public void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos) {
+            // 不携带上下文时不会被核心服务调用；保留以满足接口。
+        }
+
+        @Override
+        public void onDecision(AccessContext ctx, String identifier, String action,
+                               AccessDecision decision, long elapsedNanos) {
+            auditRepository.insert(new AuditRow(
+                    ctx.getMethod(), ctx.getUri(), ctx.getRemoteAddr(), ctx.getUserAgent(),
+                    identifier, action, decision.allowed(), decision.statusCode(),
+                    decision.reason(), elapsedNanos));
+        }
+    };
+}
+```
+
+**访问日志范围**：`upload-file.observability.access-log=true` 时，`observability.access-log-scope`
+（servlet init-param `observability.access-log-scope`）控制输出量：
+
+| 值 | 输出 |
+| --- | --- |
+| `task`（默认） | deny + 任务级放行（`merge`/`mergeStatus`/`download`/`cancel` 等），跳过逐分片 `upload` 放行 |
+| `deny` | 仅 deny |
+| `all` | 每个决策一行（rc.7 行为） |
+
+**配额对账**：`QuotaStore.reconcile(TaskStore)`（rc.8 新增 `default`）以任务库为准重建计数；默认
+`TaskStoreQuotaStore` 为空实现（无状态、无漂移），`RedisQuotaStore` 覆写。Spring Boot starter 在
+`upload-file.quota.store=redis` 时于启动期自动调用一次；也可在清理调度中按需调用。
+
+**统一响应信封**：宿主提供 `UploadErrorRenderer` Bean 即可让失败体走业务信封（宿主 Bean 优先于
+`http.error-body`）。示例见 `example/upload-file-boot4-demo` 的 `EnterpriseWiringConfig`（`enterprise` profile）
+渲染 `ApiResponse{success,code,message,data}`。注意：**组件端点的成功体仍为各自裸 JSON，仅失败体可统一**。
+
 ## 客户端建议流程（断点续传）
 
 1. 计算整个文件 MD5 作为 `identifier`；

@@ -26,6 +26,19 @@
             <param-name>metadata-dir</param-name>
             <param-value>./data/upload-servlet/meta</param-value>
         </init-param>
+        <!-- rc.8 access-decision logging (the context is shared, so it is configured once here):
+             observability.access-log enables the structured log; observability.access-log-scope
+             (task default | deny | all) controls its volume. -->
+        <!--
+        <init-param>
+            <param-name>observability.access-log</param-name>
+            <param-value>true</param-value>
+        </init-param>
+        <init-param>
+            <param-name>observability.access-log-scope</param-name>
+            <param-value>task</param-value>
+        </init-param>
+        -->
         <multipart-config>
             <max-file-size>104857600</max-file-size>
             <max-request-size>104857600</max-request-size>

@@ -239,6 +239,10 @@ public class StorageCleanupService {
         Collection<UploadTask> tasks = taskStore.list();
         for (UploadTask task : tasks) {
             if (task.isMerged()) {
+                // A merged-but-unconfirmed task is left for the orphan scan: once its task key TTL
+                // expires (Redis store), the merged dir becomes an orphan and cleanupOrphans both
+                // deletes it and releases the quota reservation (rc.8, G17), so a never-confirmed
+                // merge cannot leak quota forever.
                 continue;
             }
             long updateTime = task.getUpdateTime();
@@ -282,6 +286,9 @@ public class StorageCleanupService {
                 // Re-check after acquiring the lock: a task may have been created while scanning.
                 if (!hasTask(identifier)) {
                     chunkStorage.deleteChunks(identifier);
+                    // rc.8 (G17): the task record is gone, so release any quota reservation it held;
+                    // otherwise an expired/merged-unconfirmed task leaks its counter share forever.
+                    releaseQuota(identifier);
                     run.setCleanedOrphans(run.getCleanedOrphans() + 1);
                 }
             }
@@ -298,6 +305,9 @@ public class StorageCleanupService {
                     try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
                         if (!hasTask(identifier)) {
                             deleteDirectory(child.toPath());
+                            // rc.8 (G17): reclaim the quota of a merged-but-unconfirmed task whose
+                            // record has already expired, so it does not leak the counter forever.
+                            releaseQuota(identifier);
                             run.setCleanedOrphans(run.getCleanedOrphans() + 1);
                         }
                     }
@@ -316,6 +326,17 @@ public class StorageCleanupService {
             return taskStore.get(identifier).isPresent();
         } catch (IllegalArgumentException e) {
             return false;
+        }
+    }
+
+    /**
+     * Releases any quota reservation held for {@code identifier} (rc.8). Best-effort: a failure must
+     * not abort the cleanup pass, since the next pass (or the startup reconciliation) will repair it.
+     */
+    private void releaseQuota(String identifier) {
+        QuotaStore store = quotaStore;
+        if (store != null) {
+            store.release(identifier);
         }
     }
 

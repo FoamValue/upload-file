@@ -11,6 +11,8 @@ import cn.chenxinjie.uploadfile.core.error.UploadErrorRenderers;
 import cn.chenxinjie.uploadfile.core.exception.AccessDeniedException;
 import cn.chenxinjie.uploadfile.core.exception.UploadErrorCodes;
 import cn.chenxinjie.uploadfile.core.model.DownloadRange;
+import cn.chenxinjie.uploadfile.core.security.AccessContext;
+import cn.chenxinjie.uploadfile.core.security.AccessContextHolder;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
 import com.google.gson.Gson;
@@ -91,6 +93,20 @@ public class DownloadServlet extends HttpServlet {
         }
         String fromParam = req.getParameter("token");
         return fromParam == null || fromParam.trim().isEmpty() ? null : fromParam.trim();
+    }
+
+    /**
+     * Populates the access context for the request (rc.8, G21); cleared on the way out.
+     */
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        AccessContextHolder.set(new AccessContext(
+                req.getMethod(), req.getRequestURI(), req.getRemoteAddr(), req.getHeader("User-Agent")));
+        try {
+            super.service(req, resp);
+        } finally {
+            AccessContextHolder.clear();
+        }
     }
 
     @Override

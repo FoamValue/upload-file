@@ -16,6 +16,8 @@ import cn.chenxinjie.uploadfile.core.model.ChunkUploadRequest;
 import cn.chenxinjie.uploadfile.core.model.MergeStatus;
 import cn.chenxinjie.uploadfile.core.model.UploadProgress;
 import cn.chenxinjie.uploadfile.core.model.UploadResult;
+import cn.chenxinjie.uploadfile.core.security.AccessContext;
+import cn.chenxinjie.uploadfile.core.security.AccessContextHolder;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableUploadService;
 import com.google.gson.Gson;
@@ -124,6 +126,22 @@ public class UploadServlet extends HttpServlet {
         }
         String fromParam = req.getParameter("token");
         return fromParam == null || fromParam.trim().isEmpty() ? null : fromParam.trim();
+    }
+
+    /**
+     * Populates the access context for the request (rc.8, G21) so access-decision listeners can
+     * audit the HTTP method/URI/client address/user agent, then clears it on the way out so it never
+     * leaks onto a pooled request thread.
+     */
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        AccessContextHolder.set(new AccessContext(
+                req.getMethod(), req.getRequestURI(), req.getRemoteAddr(), req.getHeader("User-Agent")));
+        try {
+            super.service(req, resp);
+        } finally {
+            AccessContextHolder.clear();
+        }
     }
 
     @Override

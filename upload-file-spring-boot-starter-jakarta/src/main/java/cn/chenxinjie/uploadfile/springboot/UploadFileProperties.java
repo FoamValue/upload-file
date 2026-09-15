@@ -383,6 +383,14 @@ public class UploadFileProperties {
         @DurationUnit(ChronoUnit.MILLIS)
         private Duration ttl = Duration.ofSeconds(30);
 
+        /**
+         * How often a held distributed lock is renewed while held (rc.8). {@code 0} (default)
+         * derives {@code ttl/3}, so a critical section longer than the TTL (e.g. a large merge on a
+         * slow disk) keeps the lock instead of silently losing mutual exclusion.
+         */
+        @DurationUnit(ChronoUnit.MILLIS)
+        private Duration renewInterval = Duration.ZERO;
+
         public String getIdentifierLock() {
             return identifierLock;
         }
@@ -406,6 +414,14 @@ public class UploadFileProperties {
         public void setTtl(Duration ttl) {
             this.ttl = ttl;
         }
+
+        public Duration getRenewInterval() {
+            return renewInterval;
+        }
+
+        public void setRenewInterval(Duration renewInterval) {
+            this.renewInterval = renewInterval;
+        }
     }
 
     /** {@code upload-file.observability.*} */
@@ -415,6 +431,18 @@ public class UploadFileProperties {
 
         /** Whether to log a structured access-decision line per entry-point check (rc.6). */
         private boolean accessLog = false;
+
+        /**
+         * Which access decisions to log when {@link #accessLog} is on (rc.8):
+         * <ul>
+         *   <li>{@code task} (default): deny decisions plus task-level allow events
+         *       (merge/mergeStatus/download/cancel), skipping the per-chunk {@code upload} allow
+         *       that would otherwise emit one line per chunk;</li>
+         *   <li>{@code deny}: only deny decisions;</li>
+         *   <li>{@code all}: every decision (the rc.7 behaviour).</li>
+         * </ul>
+         */
+        private String accessLogScope = "task";
 
         public boolean isLogStats() {
             return logStats;
@@ -430,6 +458,14 @@ public class UploadFileProperties {
 
         public void setAccessLog(boolean accessLog) {
             this.accessLog = accessLog;
+        }
+
+        public String getAccessLogScope() {
+            return accessLogScope;
+        }
+
+        public void setAccessLogScope(String accessLogScope) {
+            this.accessLogScope = accessLogScope;
         }
     }
 

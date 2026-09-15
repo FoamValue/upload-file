@@ -7,8 +7,10 @@
 package cn.chenxinjie.uploadfile.servlet;
 
 import cn.chenxinjie.uploadfile.core.model.CleanupStats;
+import cn.chenxinjie.uploadfile.core.security.AccessContext;
 import cn.chenxinjie.uploadfile.core.security.AccessControl;
 import cn.chenxinjie.uploadfile.core.security.AccessControlListener;
+import cn.chenxinjie.uploadfile.core.security.AccessDecision;
 import cn.chenxinjie.uploadfile.core.security.PermitAllAccessControl;
 import cn.chenxinjie.uploadfile.core.security.TokenAccessControl;
 import cn.chenxinjie.uploadfile.core.service.ResumableDownloadService;
@@ -60,6 +62,7 @@ import java.util.logging.Logger;
  *       requires the lock to be supplied via {@link #build(String, String, Config, CleanupLock)}</li>
  *   <li>{@code observability.log-stats}: log cleanup statistics (default {@code true})</li>
  *   <li>{@code observability.access-log}: log one structured line per access decision (default {@code false}, rc.6)</li>
+ *   <li>{@code observability.access-log-scope}: {@code task} (default) | {@code deny} | {@code all} (rc.8)</li>
  * </ul>
  *
  * <p>All cleanup/async threads are daemon threads, so they terminate with the container.</p>
@@ -84,19 +87,57 @@ public final class UploadFileContext {
                 + ", error=" + (stats.getError() == null ? "null" : stats.getError());
     }
 
-    /** Structured access-decision log line, mirroring the starter's {@code observability.access-log}. */
-    private static AccessControlListener accessLogListener() {
-        return (identifier, action, decision, elapsedNanos) -> {
-            double elapsedMs = elapsedNanos / 1_000_000.0;
-            if (decision.allowed()) {
-                ACCESS_LOG.log(Level.INFO, "upload-file access: action={0}, identifier={1}, decision=ALLOW, elapsedMs={2}",
-                        new Object[]{action, identifier, elapsedMs});
-            } else {
-                ACCESS_LOG.log(Level.WARNING,
-                        "upload-file access: action={0}, identifier={1}, decision=DENY, status={2}, reason={3}, elapsedMs={4}",
-                        new Object[]{action, identifier, decision.statusCode(), decision.reason(), elapsedMs});
+    /**
+     * Structured access-decision log line, mirroring the starter's {@code observability.access-log}
+     * and its rc.8 {@code access-log-scope} filter (default {@code task}: deny + task-level events,
+     * skipping the per-chunk {@code upload} allow).
+     */
+    private static AccessControlListener accessLogListener(final String scope) {
+        return new AccessControlListener() {
+            @Override
+            public void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos) {
+                logAccess(AccessContext.EMPTY, identifier, action, decision, elapsedNanos, scope);
+            }
+
+            @Override
+            public void onDecision(AccessContext context, String identifier, String action,
+                                   AccessDecision decision, long elapsedNanos) {
+                logAccess(context, identifier, action, decision, elapsedNanos, scope);
             }
         };
+    }
+
+    static boolean shouldLogAccess(String scope, String action, boolean allowed) {
+        String normalized = scope == null ? "task" : scope.trim().toLowerCase();
+        if ("all".equals(normalized)) {
+            return true;
+        }
+        if (!allowed) {
+            return true;
+        }
+        if ("deny".equals(normalized)) {
+            return false;
+        }
+        return !AccessControl.ACTION_UPLOAD.equals(action);
+    }
+
+    private static void logAccess(AccessContext context, String identifier, String action,
+                                  AccessDecision decision, long elapsedNanos, String scope) {
+        if (!shouldLogAccess(scope, action, decision.allowed())) {
+            return;
+        }
+        double elapsedMs = elapsedNanos / 1_000_000.0;
+        String where = ", method=" + context.getMethod() + ", uri=" + context.getUri()
+                + ", remoteAddr=" + context.getRemoteAddr() + ", userAgent=" + context.getUserAgent();
+        if (decision.allowed()) {
+            ACCESS_LOG.log(Level.INFO,
+                    "upload-file access: action={0}, identifier={1}, decision=ALLOW, elapsedMs={2}{3}",
+                    new Object[]{action, identifier, elapsedMs, where});
+        } else {
+            ACCESS_LOG.log(Level.WARNING,
+                    "upload-file access: action={0}, identifier={1}, decision=DENY, status={2}, reason={3}, elapsedMs={4}{5}",
+                    new Object[]{action, identifier, decision.statusCode(), decision.reason(), elapsedMs, where});
+        }
     }
 
     private final TaskStore taskStore;
@@ -214,8 +255,9 @@ public final class UploadFileContext {
 
         if (config.observabilityAccessLog) {
             // Plain-Servlet deployments get the same access-decision observability as the starter
-            // (observability.access-log); the listener observes both the upload and download paths.
-            AccessControlListener listener = accessLogListener();
+            // (observability.access-log / access-log-scope); the listener observes both the upload
+            // and download paths.
+            AccessControlListener listener = accessLogListener(config.observabilityAccessLogScope);
             uploadService.addAccessControlListener(listener);
             downloadService.addAccessControlListener(listener);
         }
@@ -313,6 +355,7 @@ public final class UploadFileContext {
         public long quotaMaxBytes = 0;
         public boolean observabilityLogStats = true;
         public boolean observabilityAccessLog = false;
+        public String observabilityAccessLogScope = "task";
         public boolean cleanupUseRedisLock = false;
         public String httpErrorBody = "legacy";
         public int cancelNotFoundStatus = 404;
@@ -337,6 +380,8 @@ public final class UploadFileContext {
             c.quotaMaxBytes = longParam(config, "quota.max-bytes", c.quotaMaxBytes);
             c.observabilityLogStats = boolParam(config, "observability.log-stats", c.observabilityLogStats);
             c.observabilityAccessLog = boolParam(config, "observability.access-log", c.observabilityAccessLog);
+            c.observabilityAccessLogScope = initParam(config, "observability.access-log-scope",
+                    c.observabilityAccessLogScope);
             c.cleanupUseRedisLock = boolParam(config, "cleanup.use-redis-lock", c.cleanupUseRedisLock);
             c.httpErrorBody = initParam(config, "http.error-body", c.httpErrorBody);
             c.cancelNotFoundStatus = intParam(config, "cancel-not-found-status", c.cancelNotFoundStatus);

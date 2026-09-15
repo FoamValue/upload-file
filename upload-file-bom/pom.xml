@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Copyright (c) 2026 chenxinjie
+
+  SPDX-License-Identifier: MIT
+-->
+
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.chenxinjie</groupId>
+        <artifactId>upload-file</artifactId>
+        <version>1.0.0-rc.8</version>
+    </parent>
+
+    <artifactId>upload-file-bom</artifactId>
+    <packaging>pom</packaging>
+    <name>upload-file-bom</name>
+    <description>Bill of Materials for the upload-file toolkit: import it to align every module version without repeating versions (rc.8)</description>
+
+    <properties>
+        <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
+        <maven.deploy.skip>false</maven.deploy.skip>
+        <!-- A BOM has no sources/javadoc/coverage of its own. -->
+        <maven.source.skip>true</maven.source.skip>
+        <maven.javadoc.skip>true</maven.javadoc.skip>
+        <jacoco.skip>true</jacoco.skip>
+    </properties>
+
+    <url>https://github.com/FoamValue/upload-file</url>
+    <scm>
+        <connection>scm:git:git@github.com:FoamValue/upload-file.git</connection>
+        <developerConnection>scm:git:git@github.com:FoamValue/upload-file.git</developerConnection>
+        <url>https://github.com/FoamValue/upload-file</url>
+    </scm>
+
+    <!--
+      Import this BOM in a host's <dependencyManagement>, then declare the needed artifacts with no
+      version:
+
+        <dependencyManagement>
+          <dependencies>
+            <dependency>
+              <groupId>cn.chenxinjie</groupId>
+              <artifactId>upload-file-bom</artifactId>
+              <version>1.0.0-rc.8</version>
+              <type>pom</type>
+              <scope>import</scope>
+            </dependency>
+          </dependencies>
+        </dependencyManagement>
+    -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-servlet</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-servlet-jakarta</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-spring-boot-starter</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-store-jdbc</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>cn.chenxinjie</groupId>
+                <artifactId>upload-file-store-redis</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.sonatype.central</groupId>
+                <artifactId>central-publishing-maven-plugin</artifactId>
+                <extensions>true</extensions>
+                <configuration>
+                    <publishingServerId>central</publishingServerId>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

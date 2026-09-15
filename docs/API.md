@@ -251,6 +251,72 @@ Every typed failure carries a stable symbolic code via `UploadErrorCode.code()` 
 | `UPLOAD_SERVER_ERROR` | 500 | server-side failure (rc.6: no longer collapsed to 400) |
 | `RANGE_NOT_SATISFIABLE` | 416 | unsatisfiable `Range` |
 
+## 6. Audit Context & Access Log (rc.8)
+
+`AccessControlListener` gains a **default** 6-arg overload carrying the request context
+`AccessContext`:
+
+```java
+public interface AccessControlListener {
+    // Legacy 5-arg (retained; existing implementations need no change)
+    void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos);
+
+    // rc.8: defaults to bridging to the 5-arg method; override it to receive the request context
+    default void onDecision(AccessContext context, String identifier, String action,
+                            AccessDecision decision, long elapsedNanos) {
+        onDecision(identifier, action, decision, elapsedNanos);
+    }
+}
+```
+
+`AccessContext` is immutable with `method` / `uri` / `remoteAddr` / `userAgent`. The servlet layer fills
+it via `AccessContextHolder.set(...)` on entry and clears it in `finally`; pure-core/MVC callers with no
+HTTP request get `AccessContext.EMPTY` (fields `null`, no exception).
+
+**Minimal audit-persistence example**:
+
+```java
+@Bean
+public AccessControlListener auditListener() {
+    return new AccessControlListener() {
+        @Override
+        public void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos) {
+            // Not called by the core services when a context is present; kept to satisfy the interface.
+        }
+
+        @Override
+        public void onDecision(AccessContext ctx, String identifier, String action,
+                               AccessDecision decision, long elapsedNanos) {
+            auditRepository.insert(new AuditRow(
+                    ctx.getMethod(), ctx.getUri(), ctx.getRemoteAddr(), ctx.getUserAgent(),
+                    identifier, action, decision.allowed(), decision.statusCode(),
+                    decision.reason(), elapsedNanos));
+        }
+    };
+}
+```
+
+**Access-log scope**: when `upload-file.observability.access-log=true`,
+`observability.access-log-scope` (servlet init-param `observability.access-log-scope`) controls the
+volume:
+
+| Value | Output |
+| --- | --- |
+| `task` (default) | deny + task-level allows (`merge`/`mergeStatus`/`download`/`cancel`), skipping the per-chunk `upload` allow |
+| `deny` | denies only |
+| `all` | one line per decision (rc.7 behaviour) |
+
+**Quota reconcile**: `QuotaStore.reconcile(TaskStore)` (new `default` in rc.8) rebuilds the counter from
+the authoritative task store; the default `TaskStoreQuotaStore` is a no-op (stateless, cannot drift) and
+`RedisQuotaStore` overrides it. The Spring Boot starter calls it once at startup when
+`upload-file.quota.store=redis`; it can also be called from the cleanup scheduler.
+
+**Unified envelope**: a host `UploadErrorRenderer` bean makes every failure body use the host envelope
+(the bean wins over `http.error-body`). See `EnterpriseWiringConfig` in
+`example/upload-file-boot4-demo` (the `enterprise` profile), which renders
+`ApiResponse{success,code,message,data}`. Note: **success bodies of the component endpoints are still
+their own raw JSON; only failure bodies can be unified.**
+
 ## Suggested Client Flow (Resumable Upload)
 
 1. Compute the whole-file MD5 and use it as `identifier`;
