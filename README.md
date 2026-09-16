@@ -14,7 +14,8 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 > [Changelog](CHANGELOG.md).
 
 > ⚠️ **rc.8 upgrade notice:** (1) `observability.access-log` output now defaults to `task` level (deny + task-level
-> events, skipping the per-chunk `upload` allow — one line per chunk becomes task-level logs); set
+> events; only the first chunk's `upload` allow per task is logged, later chunks are skipped — one line per chunk
+> becomes task-level logs); set
 > `observability.access-log-scope=all` for the rc.7 per-decision log. (2) `quota.store=redis` now **reconciles at
 > startup** and corrects counter drift — no extra configuration. (3) the distributed identifier lock now renews its
 > lease while held, so a long merge no longer loses mutual exclusion when `lock.ttl` expires
@@ -59,7 +60,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Symbolic error codes & uniform error body (rc.6)** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
 - **Quota/lock correctness closure (rc.8)** – `quota.store=redis` reconciles at startup (`QuotaStore.reconcile`) and cleanup reclaims the quota of a merged-but-unconfirmed task; the distributed identifier lock renews its lease while held, so a long merge cannot lose mutual exclusion
 - **Audit context (rc.8)** – `AccessContext` / `AccessContextHolder` propagate method/URI/IP/UA, and `AccessControlListener` gains a 6-arg `default` overload (existing 5-arg implementations need no change)
-- **Access-log noise reduction (rc.8)** – `observability.access-log-scope=task|deny|all`, defaulting to `task` (skips the per-chunk allow line)
+- **Access-log noise reduction (rc.8)** – `observability.access-log-scope=task|deny|all`, defaulting to `task` (only the first chunk allow per task is logged; later chunks are skipped)
 - **BOM (rc.8)** – `upload-file-bom` aligns all 7 library module versions; a host imports it and declares only `artifactId`
 - **`TrustedUploadService` auto-wiring (rc.8)** – the starter exposes the trusted read-only facade by default; a host can override it or disable it with `trusted-upload-service.enabled=false`
 - **Multipart strategy (rc.6)** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits

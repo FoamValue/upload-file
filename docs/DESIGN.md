@@ -156,8 +156,10 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
   audit hook can persist method/URI/IP/UA. Pure-core/MVC callers with no HTTP request get
   `AccessContext.EMPTY` (all fields `null`) and no exception.
 - **`access-log` noise reduction**: `observability.access-log-scope` controls log volume (`task`
-  default logs denies plus task-level events and skips the per-chunk `upload` allow; `deny` only
-  denies; `all` restores the rc.7 per-decision log).
+  default logs denies plus task-level events, admitting only the **first chunk** `upload` allow per
+  task and skipping later chunks; `deny` only denies; `all` restores the rc.7 per-decision log). The
+  first-chunk detection uses a **bounded LRU identifier set** (cap 10000) held by the listener, so
+  memory cannot grow without bound.
 
 ## Deployment Notes
 

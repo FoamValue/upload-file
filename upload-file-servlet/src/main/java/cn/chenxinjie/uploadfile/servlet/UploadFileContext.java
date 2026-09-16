@@ -28,6 +28,10 @@ import javax.servlet.ServletConfig;
 import javax.servlet.ServletContext;
 import java.io.File;
 import java.nio.file.Paths;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -90,23 +94,30 @@ public final class UploadFileContext {
     /**
      * Structured access-decision log line, mirroring the starter's {@code observability.access-log}
      * and its rc.8 {@code access-log-scope} filter (default {@code task}: deny + task-level events,
-     * skipping the per-chunk {@code upload} allow).
+     * logging only the first chunk {@code upload} allow per task).
      */
     private static AccessControlListener accessLogListener(final String scope) {
+        // Bounded per-listener state: which identifiers already produced their first-chunk line.
+        final Set<String> loggedTaskUploads = newAccessLogIdentifierSet();
         return new AccessControlListener() {
             @Override
             public void onDecision(String identifier, String action, AccessDecision decision, long elapsedNanos) {
-                logAccess(AccessContext.EMPTY, identifier, action, decision, elapsedNanos, scope);
+                logAccess(AccessContext.EMPTY, identifier, action, decision, elapsedNanos, scope, loggedTaskUploads);
             }
 
             @Override
             public void onDecision(AccessContext context, String identifier, String action,
                                    AccessDecision decision, long elapsedNanos) {
-                logAccess(context, identifier, action, decision, elapsedNanos, scope);
+                logAccess(context, identifier, action, decision, elapsedNanos, scope, loggedTaskUploads);
             }
         };
     }
 
+    /**
+     * The stateless per-decision filter: {@code all} logs everything, {@code deny} only denies, and
+     * {@code task} (default) logs denies plus task-level allows while skipping the per-chunk
+     * {@code upload} allow. {@link #admitAccessLog} additionally lets the first chunk through.
+     */
     static boolean shouldLogAccess(String scope, String action, boolean allowed) {
         String normalized = scope == null ? "task" : scope.trim().toLowerCase();
         if ("all".equals(normalized)) {
@@ -121,9 +132,46 @@ public final class UploadFileContext {
         return !AccessControl.ACTION_UPLOAD.equals(action);
     }
 
+    /**
+     * Admits a decision to the access log, treating the first chunk {@code upload} allow per
+     * identifier as a task-level event in the default {@code task} scope (later chunks are skipped).
+     * {@code all}/{@code deny} and every non-chunk decision follow {@link #shouldLogAccess}.
+     */
+    static boolean admitAccessLog(String scope, String action, boolean allowed, String identifier,
+                                  Set<String> loggedTaskUploads) {
+        if (allowed && AccessControl.ACTION_UPLOAD.equals(action) && isTaskScope(scope)) {
+            return identifier == null || loggedTaskUploads.add(identifier);
+        }
+        return shouldLogAccess(scope, action, allowed);
+    }
+
+    private static boolean isTaskScope(String scope) {
+        String normalized = scope == null ? "task" : scope.trim().toLowerCase();
+        return !"all".equals(normalized) && !"deny".equals(normalized);
+    }
+
+    /** Cap on the identifiers tracked for first-chunk logging, so the listener stays bounded. */
+    static final int ACCESS_LOG_TRACKED_IDENTIFIERS = 10_000;
+
+    /**
+     * A bounded, thread-safe set used to log only the first chunk upload of a task in the default
+     * {@code task} scope; the least-recently-used identifier is evicted past the cap so an
+     * unbounded stream of uploads cannot leak memory.
+     */
+    static Set<String> newAccessLogIdentifierSet() {
+        Map<String, Boolean> lru = new LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                return size() > ACCESS_LOG_TRACKED_IDENTIFIERS;
+            }
+        };
+        return Collections.newSetFromMap(Collections.synchronizedMap(lru));
+    }
+
     private static void logAccess(AccessContext context, String identifier, String action,
-                                  AccessDecision decision, long elapsedNanos, String scope) {
-        if (!shouldLogAccess(scope, action, decision.allowed())) {
+                                  AccessDecision decision, long elapsedNanos, String scope,
+                                  Set<String> loggedTaskUploads) {
+        if (!admitAccessLog(scope, action, decision.allowed(), identifier, loggedTaskUploads)) {
             return;
         }
         double elapsedMs = elapsedNanos / 1_000_000.0;

@@ -95,6 +95,19 @@
 
     <build>
         <plugins>
+            <!--
+              A BOM must be published with its dependencyManagement intact. The parent's default
+              flattenMode=ossrh strips the whole dependencyManagement section (it targets libraries
+              whose parent POM carries the versions), which would make the deployed BOM useless to a
+              consumer importing it. flattenMode=bom keeps dependencyManagement and nothing else.
+            -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>flatten-maven-plugin</artifactId>
+                <configuration>
+                    <flattenMode>bom</flattenMode>
+                </configuration>
+            </plugin>
             <plugin>
                 <groupId>org.sonatype.central</groupId>
                 <artifactId>central-publishing-maven-plugin</artifactId>

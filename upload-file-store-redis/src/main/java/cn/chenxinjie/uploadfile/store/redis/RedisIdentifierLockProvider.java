@@ -24,6 +24,7 @@ import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -68,15 +69,24 @@ public class RedisIdentifierLockProvider implements IdentifierLockProvider {
                     + "end "
                     + "return 0";
 
-    /** One shared daemon scheduler for every provider, so watchdogs never keep the JVM alive. */
-    private static final ScheduledExecutorService WATCHDOG = Executors.newScheduledThreadPool(1, new ThreadFactory() {
-        @Override
-        public Thread newThread(Runnable r) {
-            Thread t = new Thread(r, "upload-file-lock-renew");
-            t.setDaemon(true);
-            return t;
-        }
-    });
+    /**
+     * A small shared daemon scheduler for every provider, so watchdogs never keep the JVM alive.
+     * More than one thread so a renewal that blocks on a pooled Redis connection (or a burst of
+     * concurrently held locks) cannot delay other leases' renewals and let them expire.
+     */
+    private static final int WATCHDOG_THREADS = 4;
+
+    private static final ScheduledExecutorService WATCHDOG =
+            Executors.newScheduledThreadPool(WATCHDOG_THREADS, new ThreadFactory() {
+                private final AtomicInteger seq = new AtomicInteger();
+
+                @Override
+                public Thread newThread(Runnable r) {
+                    Thread t = new Thread(r, "upload-file-lock-renew-" + seq.incrementAndGet());
+                    t.setDaemon(true);
+                    return t;
+                }
+            });
 
     private final JedisPool pool;
     private final String keyPrefix;

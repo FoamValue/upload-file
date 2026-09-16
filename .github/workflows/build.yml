@@ -38,8 +38,19 @@ jobs:
           java-version: '17'
           cache: maven
       # rc.8 (T53): fail the build on any non-additive API change against the rc.7 baseline, and
-      # produce an aggregate CycloneDX SBOM. The baseline artifacts must be published to be resolvable.
+      # produce an aggregate CycloneDX SBOM. The binary-compatibility gate can only run once the
+      # baseline artifact is resolvable (i.e. the previous release has been published); until then it
+      # is skipped with a warning so the job stays green without silently weakening the gate. The
+      # SBOM is always generated. The baseline version is read from the POM so it cannot drift.
       - name: Binary-compatibility gate + SBOM
-        run: >
-          mvn -B verify -Pcompat-check,sbom
-          -pl upload-file-core,upload-file-servlet,upload-file-servlet-jakarta,upload-file-spring-boot-starter,upload-file-spring-boot-starter-jakarta,upload-file-store-jdbc,upload-file-store-redis
+        run: |
+          BASELINE=$(mvn -B -q -DforceStdout help:evaluate -Dexpression=compat.baseline.version)
+          PROFILES=sbom
+          if [ -n "$BASELINE" ] \
+             && mvn -B -q dependency:get -Dartifact="cn.chenxinjie:upload-file-core:$BASELINE"; then
+            PROFILES=compat-check,sbom
+          else
+            echo "::warning title=compat gate skipped::baseline ${BASELINE:-<unknown>} is not resolvable; publish it to enable the binary-compatibility gate"
+          fi
+          mvn -B verify -P"$PROFILES" \
+            -pl upload-file-core,upload-file-servlet,upload-file-servlet-jakarta,upload-file-spring-boot-starter,upload-file-spring-boot-starter-jakarta,upload-file-store-jdbc,upload-file-store-redis

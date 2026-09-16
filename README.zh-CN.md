@@ -12,8 +12,8 @@
 > 🚧 状态：**Pre-release** `1.0.0-rc.8`（GA 前最后收口）— **本版合并后 API 冻结**，`1.0.0` 仅版本号与发布公告。
 > 范围与兼容承诺见 [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)与[更新日志](CHANGELOG.zh-CN.md)。
 
-> ⚠️ **rc.8 升级提示**：①`observability.access-log` 的输出默认收敛为 `task` 级（deny + 任务级事件，跳过逐分片
-> `upload` 放行，日志量由每分片一行降为任务级）；如需 rc.7 的逐决策日志，设 `observability.access-log-scope=all`。
+> ⚠️ **rc.8 升级提示**：①`observability.access-log` 的输出默认收敛为 `task` 级（deny + 任务级事件；每个任务
+> 仅记录首个分片的 `upload` 放行，后续分片跳过，日志量由每分片一行降为任务级）；如需 rc.7 的逐决策日志，设 `observability.access-log-scope=all`。
 > ②`quota.store=redis` 现于**启动期自动对账**并修正计数漂移，行为更正确、无需额外配置。③分布式 identifier 锁新增
 > 持有期续租，长合并不再因 `lock.ttl` 到期而失去互斥（`lock.renew-interval` 可覆盖，默认 `ttl/3`）。
 
@@ -50,7 +50,7 @@
 - **multipart 策略化（rc.6）**：`multipart.strategy=component|spring|unlimited`，可在组件自管、跟随 `spring.servlet.multipart.*`、关闭容器上限之间选择
 - **配额/锁正确性收口（rc.8）**：`quota.store=redis` 启动期自动对账（`QuotaStore.reconcile`），清理回收已合并未确认任务的配额；分布式 identifier 锁持有期 watchdog 续租，长合并不再锁失效
 - **审计上下文（rc.8）**：`AccessContext` / `AccessContextHolder` 透传 method/URI/IP/UA，`AccessControlListener` 新增 6 参 `default` 重载（旧 5 参实现零改动）
-- **访问日志降噪（rc.8）**：`observability.access-log-scope=task|deny|all`，默认 `task` 跳过逐分片放行日志
+- **访问日志降噪（rc.8）**：`observability.access-log-scope=task|deny|all`，默认 `task` 每个任务仅记录首个分片放行日志（后续分片跳过）
 - **BOM（rc.8）**：`upload-file-bom` 统一 7 个库模块版本，宿主 `import` 后只写 `artifactId`
 - **`TrustedUploadService` 自动装配（rc.8）**：starter 默认暴露受信只读门面，宿主可覆写或经 `trusted-upload-service.enabled=false` 关闭
 

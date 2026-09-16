@@ -38,7 +38,8 @@
   方法（既有实现零改动）；servlet 层（javax + jakarta）在请求进入时填充 method/URI/remoteAddr/User-Agent、
   `finally` 清理；审计钩子现可落库与登录审计一致的字段。
 - **`access-log` 降噪**（反馈 P2-2 / G22）：新增 `upload-file.observability.access-log-scope`
-  （`task`（**新默认**）/`deny`/`all`），`task` 记录 deny + 任务级事件、跳过逐分片 `upload` 放行，
+  （`task`（**新默认**）/`deny`/`all`），`task` 记录 deny + 任务级事件、每个任务仅记录**首个分片**的
+  `upload` 放行（后续分片跳过；有界 LRU，上限 10000 个 identifier），
   500MB/5MB 上传由 ~100 行降为任务级日志；`all` 恢复 rc.7 逐决策日志。纯 Servlet 路径经 init-param 对齐。
 - **`TrustedUploadService` starter 自动装配**（G23）：两条 starter 新增 `@ConditionalOnMissingBean` Bean，
   由 `ResumableUploadService` 构造；`upload-file.trusted-upload-service.enabled=false` 可关闭，宿主可覆写。

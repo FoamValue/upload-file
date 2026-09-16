@@ -32,8 +32,8 @@ upload-file:
     error-body: standard
     # cancel-not-found-status: 200      # optional: treat canceling a missing task as an idempotent 200
   # Structured access-decision log. rc.8: scope defaults to "task" (deny + task-level events), so a
-  # large upload no longer logs one line per chunk; set "all" to restore the rc.7 per-decision log or
-  # "deny" for denies only.
+  # large upload no longer logs one line per chunk — only the first chunk of each task is logged; set
+  # "all" to restore the rc.7 per-decision log or "deny" for denies only.
   observability:
     access-log: true
     access-log-scope: task

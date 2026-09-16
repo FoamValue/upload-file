@@ -302,7 +302,7 @@ volume:
 
 | Value | Output |
 | --- | --- |
-| `task` (default) | deny + task-level allows (`merge`/`mergeStatus`/`download`/`cancel`), skipping the per-chunk `upload` allow |
+| `task` (default) | deny + task-level allows (`merge`/`mergeStatus`/`download`/`cancel`); only the **first chunk** `upload` allow per task is logged (later chunks are skipped; at most 10000 identifiers are tracked, LRU-evicted) |
 | `deny` | denies only |
 | `all` | one line per decision (rc.7 behaviour) |
 

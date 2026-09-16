@@ -336,7 +336,12 @@ public class StorageCleanupService {
     private void releaseQuota(String identifier) {
         QuotaStore store = quotaStore;
         if (store != null) {
-            store.release(identifier);
+            try {
+                store.release(identifier);
+            } catch (RuntimeException ignored) {
+                // Best-effort: a transient quota-store failure (e.g. Redis down) must not abort the
+                // rest of the orphan scan; the next pass or the startup reconciliation repairs it.
+            }
         }
     }
 

@@ -48,7 +48,8 @@ rc.6; and completes the GA release engineering (BOM, SOW/API freeze, binary-comp
   audit hook can persist the same fields as a login audit.
 - **`access-log` noise reduction** (feedback P2-2 / G22): new
   `upload-file.observability.access-log-scope` (`task` (**new default**) / `deny` / `all`); `task`
-  logs denies plus task-level events and skips the per-chunk `upload` allow, turning a 500MB/5MB
+  logs denies plus task-level events, admitting only the **first chunk** `upload` allow per task
+  (later chunks are skipped; bounded LRU, cap 10000 identifiers), turning a 500MB/5MB
   upload from ~100 lines into task-level logs; `all` restores the rc.7 per-decision log. The plain
   Servlet path honours the same setting via an init-param.
 - **`TrustedUploadService` starter auto-wiring** (G23): both starters add a

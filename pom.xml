@@ -401,6 +401,15 @@ upload-file-store-jdbc,upload-file-store-redis
                         <groupId>org.cyclonedx</groupId>
                         <artifactId>cyclonedx-maven-plugin</artifactId>
                         <version>${cyclonedx-maven-plugin.version}</version>
+                        <configuration>
+                            <!--
+                              The plugin's default skipNotDeployed=true skips any module that does not
+                              explicitly declare maven-deploy-plugin (this project publishes through
+                              central-publishing-maven-plugin instead), which would produce no SBOM at
+                              all. Force generation for every module.
+                            -->
+                            <skipNotDeployed>false</skipNotDeployed>
+                        </configuration>
                         <executions>
                             <execution>
                                 <id>cyclonedx-bom</id>

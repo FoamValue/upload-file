@@ -289,7 +289,7 @@ public AccessControlListener auditListener() {
 
 | 值 | 输出 |
 | --- | --- |
-| `task`（默认） | deny + 任务级放行（`merge`/`mergeStatus`/`download`/`cancel` 等），跳过逐分片 `upload` 放行 |
+| `task`（默认） | deny + 任务级放行（`merge`/`mergeStatus`/`download`/`cancel` 等），每个任务仅记录**首个分片**的 `upload` 放行（后续分片跳过；最多跟踪 10000 个 identifier，LRU 淘汰） |
 | `deny` | 仅 deny |
 | `all` | 每个决策一行（rc.7 行为） |
 

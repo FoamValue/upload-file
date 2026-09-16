@@ -140,7 +140,8 @@ upload-file（父 POM / 聚合器）
   `finally` 清理；核心服务在通知 `AccessControlListener` 时读取并传入 6 参重载，审计钩子可落库
   method/URI/IP/UA。纯 core/MVC 调用无 HTTP 请求时使用 `AccessContext.EMPTY`（字段为 `null`），不抛异常。
 - **`access-log` 降噪**：`observability.access-log-scope` 控制日志量（`task` 默认记录 deny + 任务级事件、
-  跳过逐分片 `upload` 放行；`deny` 仅 deny；`all` 恢复 rc.7 逐决策）。
+  每个任务仅放行**首个分片**的 `upload` 日志、后续分片跳过；`deny` 仅 deny；`all` 恢复 rc.7 逐决策）。
+  首分片识别由监听器持有的**有界 LRU identifier 集合**（上限 10000）完成，避免内存无界增长。
 
 ## 部署约束
 
