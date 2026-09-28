@@ -5,7 +5,10 @@
 > This is the Statement of Work for the `1.0.0` GA. After rc.8 is merged the **public API and the
 > `upload-file.*` property surface are frozen**; `1.0.0` is a version bump and announcement only,
 > with no code change. From `1.0.0` the project follows [semantic versioning](https://semver.org/):
-> breaking changes may only land in `2.0.0`.
+> breaking changes may only land in `2.0.0`. `1.0.0-rc.9` is the **security closure** inside the
+> freeze: additive changes only (new `require-checksum` property) plus tightened defaults
+> (`max-chunk-size` defaults to 10 MB; startup fails when the request/chunk/file limits are all
+> unbounded) — no frozen contract is broken (see §3).
 
 ## 1. GA Scope
 
@@ -67,6 +70,14 @@ Added/changed in rc.8:
 | `observability.access-log-scope` | `task` | `task`/`deny`/`all`; `all` restores the rc.7 per-decision log (**default change, log volume only**) |
 | `quota.store=redis` | startup reconcile | corrects Redis data loss (under-count) and leaked reservations (over-count) |
 | `trusted-upload-service.enabled` | `true` | whether to expose the `TrustedUploadService` bean |
+
+Added/changed in rc.9 (security closure, additive, part of the frozen surface):
+
+| Item | Default | Notes |
+| --- | --- | --- |
+| `require-checksum` | `false` | with `verify-checksum + require-checksum`, a chunk missing `chunkMd5` is rejected and deleted (new property) |
+| `max-chunk-size` | `10 MB` | default tightened from `-1` (unlimited) to 10 MB (breaking-default, default value only; explicit config is unaffected) |
+| request/chunk/file limits | fail-fast when all unbounded | unset `max-request-size` is derived from `max-chunk-size`/`max-file-size` (+1 MB); startup fails when all three are unbounded (new behavior) |
 
 ## 4. `@Deprecated` Retention
 

@@ -20,6 +20,8 @@ import java.lang.reflect.Method;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * rc.7 unit coverage: multipart safe-default derivation (T37) and host {@link UploadErrorRenderer}
@@ -41,16 +43,21 @@ class UploadFileAutoConfigurationRc7UnitTest {
     @Test
     void componentStrategyDerivesRequestLimitFromFileSize() throws Exception {
         UploadFileProperties properties = new UploadFileProperties();
+        properties.setMaxChunkSize(-1); // disable chunk limit so file-size is used
         properties.setMaxFileSize(500 * MB);
         MultipartConfigElement configElement = multipartConfig(properties, new MockEnvironment());
         assertEquals(501 * MB, configElement.getMaxRequestSize());
     }
 
     @Test
-    void componentStrategyStaysUnboundedOnlyWhenNothingIsConfigured() throws Exception {
+    void componentStrategyFailsFastWhenNothingIsConfigured() throws Exception {
         UploadFileProperties properties = new UploadFileProperties();
-        MultipartConfigElement configElement = multipartConfig(properties, new MockEnvironment());
-        assertEquals(-1, configElement.getMaxRequestSize());
+        properties.setMaxChunkSize(-1);
+        // H2: when no limit is configured at all, the starter refuses to start (fail-fast)
+        // instead of leaving the container multipart limit unbounded.
+        // The method is invoked via reflection so the IllegalStateException is wrapped.
+        Exception thrown = assertThrows(Exception.class, () -> multipartConfig(properties, new MockEnvironment()));
+        assertTrue(thrown.getCause() instanceof IllegalStateException);
     }
 
     @Test

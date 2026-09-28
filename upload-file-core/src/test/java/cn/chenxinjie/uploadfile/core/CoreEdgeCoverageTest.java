@@ -159,7 +159,8 @@ public class CoreEdgeCoverageTest {
         FileTaskStore store = new FileTaskStore(folder.newFolder("meta").toPath());
         ChunkStorage failingChunks = new ChunkStorage() {
             @Override
-            public void saveChunk(String identifier, int chunkIndex, java.io.InputStream in) {
+            public long saveChunk(String identifier, int chunkIndex, java.io.InputStream in) {
+                return 0;
             }
 
             @Override

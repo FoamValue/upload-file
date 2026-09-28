@@ -23,6 +23,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.Path;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -100,6 +101,18 @@ public class ResumableDownloadService {
         // ({mergedFileDir}/{identifier}/{fileName}) for robustness.
         if (StringUtil.isNotBlank(task.getFinalPath())) {
             File file = new File(task.getFinalPath());
+            // Guard against a tampered finalPath that escapes mergedFileDir (M2): only serve
+            // files that resolve inside the configured merged-file directory.
+            File canonicalMergedDir;
+            try {
+                canonicalMergedDir = mergedFileDir.getCanonicalFile();
+                File canonicalFile = file.getCanonicalFile();
+                if (!canonicalFile.toPath().startsWith(canonicalMergedDir.toPath())) {
+                    return Optional.empty();
+                }
+            } catch (IOException ignored) {
+                return Optional.empty();
+            }
             if (file.isFile()) {
                 return Optional.of(file);
             }

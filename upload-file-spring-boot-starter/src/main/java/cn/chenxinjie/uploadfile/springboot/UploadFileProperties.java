@@ -32,6 +32,9 @@ public class UploadFileProperties {
     /** Whether to verify chunk MD5. */
     private boolean verifyChecksum = true;
 
+    /** When verify-checksum is on, reject chunks that arrive without a checksum (M1). */
+    private boolean requireChecksum = false;
+
     /** Upload servlet mapping path. */
     private String uploadUrl = "/upload";
 
@@ -39,7 +42,7 @@ public class UploadFileProperties {
     private String downloadUrl = "/download";
 
     /** Max chunk size in bytes (multipart), -1 means unlimited. */
-    private long maxChunkSize = -1;
+    private long maxChunkSize = 10 * 1024 * 1024; // 10 MB default (H2: was -1, now bounded)
 
     /** Max request size in bytes (multipart), -1 means unlimited. */
     private long maxRequestSize = -1;
@@ -111,6 +114,14 @@ public class UploadFileProperties {
 
     public void setVerifyChecksum(boolean verifyChecksum) {
         this.verifyChecksum = verifyChecksum;
+    }
+
+    public boolean isRequireChecksum() {
+        return requireChecksum;
+    }
+
+    public void setRequireChecksum(boolean requireChecksum) {
+        this.requireChecksum = requireChecksum;
     }
 
     public String getUploadUrl() {

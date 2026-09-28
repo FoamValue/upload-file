@@ -372,7 +372,11 @@ public class DownloadServletTest {
     @Test
     public void largeFileUsesLongContentLength() throws Exception {
         long size = 2L * 1024 * 1024 * 1024 + 10; // over 2 GB, requires setContentLengthLong
-        File big = new File(folder.getRoot(), "big.bin");
+        // The file must live inside the merged-file dir (storage-dir/files) so the M2
+        // canonical-path guard in resolveFile accepts it.
+        File filesDir = new File(folder.getRoot(), "files");
+        filesDir.mkdirs();
+        File big = new File(filesDir, "big.bin");
         try (RandomAccessFile raf = new RandomAccessFile(big, "rw")) {
             raf.setLength(size); // sparse file, no real disk usage
         }

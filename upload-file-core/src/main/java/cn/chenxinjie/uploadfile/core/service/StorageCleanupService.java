@@ -282,14 +282,23 @@ public class StorageCleanupService {
             if (known.contains(identifier)) {
                 continue;
             }
-            try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
-                // Re-check after acquiring the lock: a task may have been created while scanning.
-                if (!hasTask(identifier)) {
-                    chunkStorage.deleteChunks(identifier);
-                    // rc.8 (G17): the task record is gone, so release any quota reservation it held;
-                    // otherwise an expired/merged-unconfirmed task leaks its counter share forever.
-                    releaseQuota(identifier);
-                    run.setCleanedOrphans(run.getCleanedOrphans() + 1);
+            try {
+                try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
+                    // Re-check after acquiring the lock: a task may have been created while scanning.
+                    if (!hasTask(identifier)) {
+                        chunkStorage.deleteChunks(identifier);
+                        // rc.8 (G17): the task record is gone, so release any quota reservation it held;
+                        // otherwise an expired/merged-unconfirmed task leaks its counter share forever.
+                        releaseQuota(identifier);
+                        run.setCleanedOrphans(run.getCleanedOrphans() + 1);
+                    }
+                }
+            } catch (RuntimeException e) {
+                // Isolate a single bad identifier (e.g. illegal path characters) so the rest of the
+                // orphan scan continues; the offending entry is retried on the next pass.
+                Consumer<Throwable> listener = errorListener;
+                if (listener != null) {
+                    listener.accept(e);
                 }
             }
         }
@@ -302,13 +311,20 @@ public class StorageCleanupService {
                     if (known.contains(identifier)) {
                         continue;
                     }
-                    try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
-                        if (!hasTask(identifier)) {
-                            deleteDirectory(child.toPath());
-                            // rc.8 (G17): reclaim the quota of a merged-but-unconfirmed task whose
-                            // record has already expired, so it does not leak the counter forever.
-                            releaseQuota(identifier);
-                            run.setCleanedOrphans(run.getCleanedOrphans() + 1);
+                    try {
+                        try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
+                            if (!hasTask(identifier)) {
+                                deleteDirectory(child.toPath());
+                                // rc.8 (G17): reclaim the quota of a merged-but-unconfirmed task whose
+                                // record has already expired, so it does not leak the counter forever.
+                                releaseQuota(identifier);
+                                run.setCleanedOrphans(run.getCleanedOrphans() + 1);
+                            }
+                        }
+                    } catch (RuntimeException e) {
+                        Consumer<Throwable> listener = errorListener;
+                        if (listener != null) {
+                            listener.accept(e);
                         }
                     }
                 }

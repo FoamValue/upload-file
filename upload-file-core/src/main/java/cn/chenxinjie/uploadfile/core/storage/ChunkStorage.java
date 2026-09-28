@@ -25,8 +25,31 @@ public interface ChunkStorage {
      * @param identifier unique file identifier
      * @param chunkIndex chunk index (starts at 0)
      * @param in         input stream of the chunk content; the whole stream is consumed by this method
+     * @return the number of bytes written to disk
      */
-    void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException;
+    long saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException;
+
+    /**
+     * Stores a chunk with a byte limit, aborting mid-stream once the limit is exceeded so an
+     * oversized chunk is never fully written to disk (M5).
+     *
+     * <p>Default implementation delegates to {@link #saveChunk(String, int, InputStream)} and
+     * then checks the size, so custom implementations that want true streaming should override
+     * this method.</p>
+     *
+     * @param maxBytes maximum bytes to write; a value &lt;= 0 means unlimited
+     * @throws IOException if the chunk exceeds {@code maxBytes} (the partial temp file is removed)
+     */
+    default long saveChunk(String identifier, int chunkIndex, InputStream in, long maxBytes)
+            throws IOException {
+        long written = saveChunk(identifier, chunkIndex, in);
+        if (maxBytes > 0 && written > maxBytes) {
+            deleteChunk(identifier, chunkIndex);
+            throw new IOException("Chunk " + chunkIndex + " exceeds the maximum allowed size of "
+                    + maxBytes + " bytes (wrote " + written + ")");
+        }
+        return written;
+    }
 
     boolean chunkExists(String identifier, int chunkIndex);
 

@@ -60,7 +60,12 @@ public class LocalFileChunkStorage implements ChunkStorage {
     }
 
     @Override
-    public void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
+    public long saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
+        return saveChunk(identifier, chunkIndex, in, 0);
+    }
+
+    @Override
+    public long saveChunk(String identifier, int chunkIndex, InputStream in, long maxBytes) throws IOException {
         StringUtil.requireSafeIdentifier(identifier);
         Path target = chunkPath(identifier, chunkIndex);
         Files.createDirectories(target.getParent());
@@ -68,16 +73,50 @@ public class LocalFileChunkStorage implements ChunkStorage {
         // This guarantees that an interrupted upload never leaves a half-written chunk behind.
         Path tmp = Files.createTempFile(target.getParent(), ".upload-", SUFFIX);
         try {
-            Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            long bytes;
+            if (maxBytes > 0) {
+                // Stream the input with a running byte count so an oversized chunk is aborted
+                // mid-stream instead of writing the whole payload to disk first (M5).
+                bytes = copyWithLimit(in, tmp, maxBytes);
+            } else {
+                bytes = Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            }
             try {
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
             } catch (AtomicMoveNotSupportedException e) {
-                // Some file systems do not support atomic moves; fall back to a plain rename.
                 Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
             }
+            return bytes;
         } finally {
             Files.deleteIfExists(tmp);
         }
+    }
+
+    /**
+     * Copies at most {@code maxBytes} from {@code in} to {@code target}; throws once the limit
+     * is exceeded so the caller can delete the partial temp file.
+     */
+    private static long copyWithLimit(InputStream in, Path target, long maxBytes) throws IOException {
+        long total = 0;
+        byte[] buffer = new byte[8192];
+        try (java.io.OutputStream out = Files.newOutputStream(target)) {
+            int n;
+            while ((n = in.read(buffer)) != -1) {
+                if (total + n > maxBytes) {
+                    // Write the remaining bytes up to the limit, then abort so the temp file is
+                    // at most maxBytes + buffer.length, not the full oversized payload.
+                    int allowed = (int) Math.max(0, maxBytes - total);
+                    if (allowed > 0) {
+                        out.write(buffer, 0, allowed);
+                        total += allowed;
+                    }
+                    throw new IOException("Chunk exceeds the maximum allowed size of " + maxBytes + " bytes");
+                }
+                out.write(buffer, 0, n);
+                total += n;
+            }
+        }
+        return total;
     }
 
     @Override

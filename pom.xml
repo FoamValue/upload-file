@@ -12,7 +12,7 @@
 
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file</artifactId>
-    <version>1.0.0-rc.8</version>
+    <version>1.0.0-rc.9</version>
     <packaging>pom</packaging>
 
     <name>upload-file</name>
@@ -59,7 +59,7 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-        <project.build.outputTimestamp>2026-08-23T00:00:00Z</project.build.outputTimestamp>
+        <project.build.outputTimestamp>2026-09-28T14:07:44Z</project.build.outputTimestamp>
         <maven.compiler.release>8</maven.compiler.release>
         <maven.compiler.parameters>true</maven.compiler.parameters>
 

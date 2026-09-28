@@ -175,8 +175,8 @@ public final class UploadFileContext {
             return;
         }
         double elapsedMs = elapsedNanos / 1_000_000.0;
-        String where = ", method=" + context.getMethod() + ", uri=" + context.getUri()
-                + ", remoteAddr=" + context.getRemoteAddr() + ", userAgent=" + context.getUserAgent();
+        String where = ", method=" + sanitizeLog(context.getMethod()) + ", uri=" + sanitizeLog(context.getUri())
+                + ", remoteAddr=" + sanitizeLog(context.getRemoteAddr()) + ", userAgent=" + sanitizeLog(context.getUserAgent());
         if (decision.allowed()) {
             ACCESS_LOG.log(Level.INFO,
                     "upload-file access: action={0}, identifier={1}, decision=ALLOW, elapsedMs={2}{3}",
@@ -186,6 +186,22 @@ public final class UploadFileContext {
                     "upload-file access: action={0}, identifier={1}, decision=DENY, status={2}, reason={3}, elapsedMs={4}{5}",
                     new Object[]{action, identifier, decision.statusCode(), decision.reason(), elapsedMs, where});
         }
+    }
+
+    static String sanitizeLog(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t' || c < 0x20 || c == 0x7f) {
+                sb.append('_');
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     private final TaskStore taskStore;

@@ -294,6 +294,7 @@ public class UploadFileAutoConfiguration {
                 identifierLock, accessControl);
         service.setIdentifierLockProvider(identifierLockProvider);
         service.setQuotaStore(quotaStore);
+        service.setRequireChecksum(properties.isRequireChecksum());
         if (properties.getMaxChunkSize() > 0) {
             service.setMaxChunkBytes(properties.getMaxChunkSize());
         }
@@ -514,8 +515,11 @@ public class UploadFileAutoConfiguration {
             return;
         }
         double elapsedMs = elapsedNanos / 1_000_000.0;
-        String where = ", method=" + context.getMethod() + ", uri=" + context.getUri()
-                + ", remoteAddr=" + context.getRemoteAddr() + ", userAgent=" + context.getUserAgent();
+        String sanitizedUri = sanitizeLog(context.getUri());
+        String sanitizedAddr = sanitizeLog(context.getRemoteAddr());
+        String sanitizedUa = sanitizeLog(context.getUserAgent());
+        String where = ", method=" + sanitizeLog(context.getMethod()) + ", uri=" + sanitizedUri
+                + ", remoteAddr=" + sanitizedAddr + ", userAgent=" + sanitizedUa;
         if (decision.allowed()) {
             LOG.info("upload-file access: action=" + action + ", identifier=" + identifier
                     + ", decision=ALLOW" + where + ", elapsedMs=" + elapsedMs);
@@ -524,6 +528,26 @@ public class UploadFileAutoConfiguration {
                     + ", decision=DENY, status=" + decision.statusCode()
                     + ", reason=" + decision.reason() + where + ", elapsedMs=" + elapsedMs);
         }
+    }
+
+    /**
+     * Strips CR/LF and other control characters from a value before it is interpolated into a
+     * log line, preventing log injection via a crafted User-Agent or URI (M3).
+     */
+    static String sanitizeLog(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder(value.length());
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '\n' || c == '\r' || c == '\t' || c < 0x20 || c == 0x7f) {
+                sb.append('_');
+            } else {
+                sb.append(c);
+            }
+        }
+        return sb.toString();
     }
 
     /** Endpoint registration gate: {@code endpoint.enabled=false} = beans-only mode (rc.6). */
@@ -644,8 +668,11 @@ public class UploadFileAutoConfiguration {
                 LOG.info("upload-file.multipart.max-request-size not set; deriving the container limit "
                         + maxRequestSize + " from max-file-size");
             } else {
-                LOG.warn("upload-file.multipart: max-request-size/max-chunk-size/max-file-size are all "
-                        + "unset; the container multipart limit is unbounded (DoS surface)");
+                throw new IllegalStateException(
+                        "upload-file.multipart: max-request-size, max-chunk-size and max-file-size are all "
+                                + "unset; refusing to start with an unbounded container multipart limit (DoS surface). "
+                                + "Set at least one of upload-file.max-chunk-size, upload-file.max-file-size, "
+                                + "or upload-file.max-request-size, or switch to multipart.strategy=spring/unlimited.");
             }
         }
         return new MultipartConfigElement(

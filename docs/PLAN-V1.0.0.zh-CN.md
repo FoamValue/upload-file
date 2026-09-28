@@ -5,6 +5,9 @@
 > 本文件是 `1.0.0` GA 的范围声明（Statement of Work）。rc.8 合并后，**公开 API 与
 > `upload-file.*` 属性面即冻结**；`1.0.0` 仅做版本号提升与发布公告，不再改代码。自 `1.0.0`
 > 起遵循[语义化版本](https://semver.org/lang/zh-CN/)：破坏性变更只能进入 `2.0.0`。
+> `1.0.0-rc.9` 为冻结期内的**安全收口**：仅 additive 变更（新增 `require-checksum` 属性）与
+> 默认值收紧（`max-chunk-size` 默认 10 MB、三层上限全无界时启动失败），不破坏任何冻结契约
+> （见 §3）。
 
 ## 一、GA 范围
 
@@ -65,6 +68,14 @@ rc.8 新增/变更：
 | `observability.access-log-scope` | `task` | `task`/`deny`/`all`；`all` 恢复 rc.7 逐决策日志（**默认行为变更，仅日志量**） |
 | `quota.store=redis` | 启动自动对账 | 修正 Redis 数据丢失（低估）与残留预留（高估） |
 | `trusted-upload-service.enabled` | `true` | 是否暴露 `TrustedUploadService` Bean |
+
+rc.9 新增/变更（安全收口，additive，纳入冻结面）：
+
+| 项 | 默认 | 说明 |
+| --- | --- | --- |
+| `require-checksum` | `false` | `verify-checksum + require-checksum` 时缺失 `chunkMd5` 的分块被拒绝并删除（新增属性） |
+| `max-chunk-size` | `10 MB` | 默认由 `-1`（不限）收紧为 10 MB（breaking-default，仅默认值；显式配置不受影响） |
+| request/chunk/file 三层上限 | 全部无界时启动失败 | `max-request-size` 未配置时按 `max-chunk-size`/`max-file-size` 推导（+1 MB）；全无界则 fail-fast（新增行为） |
 
 ## 四、`@Deprecated` 项保留策略
 

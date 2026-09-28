@@ -13,13 +13,13 @@
     <parent>
         <groupId>cn.chenxinjie</groupId>
         <artifactId>upload-file</artifactId>
-        <version>1.0.0-rc.8</version>
+        <version>1.0.0-rc.9</version>
     </parent>
 
     <artifactId>upload-file-bom</artifactId>
     <packaging>pom</packaging>
     <name>upload-file-bom</name>
-    <description>Bill of Materials for the upload-file toolkit: import it to align every module version without repeating versions (rc.8)</description>
+    <description>Bill of Materials for the upload-file toolkit: import it to align every module version without repeating versions (rc.9)</description>
 
     <properties>
         <!-- Published artifact: override the aggregator's skip so this module is deployed. -->
@@ -46,7 +46,7 @@
             <dependency>
               <groupId>cn.chenxinjie</groupId>
               <artifactId>upload-file-bom</artifactId>
-              <version>1.0.0-rc.8</version>
+              <version>1.0.0-rc.9</version>
               <type>pom</type>
               <scope>import</scope>
             </dependency>

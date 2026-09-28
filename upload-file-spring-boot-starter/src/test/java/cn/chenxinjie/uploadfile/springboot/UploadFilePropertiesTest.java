@@ -26,7 +26,7 @@ class UploadFilePropertiesTest {
         assertTrue(properties.isVerifyChecksum());
         assertEquals("/upload", properties.getUploadUrl());
         assertEquals("/download", properties.getDownloadUrl());
-        assertEquals(-1L, properties.getMaxChunkSize());
+        assertEquals(10L * 1024 * 1024, properties.getMaxChunkSize()); // H2: default 10 MB
         assertEquals(-1L, properties.getMaxRequestSize());
         assertEquals("auto", properties.getMetadataStore());
 

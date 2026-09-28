@@ -88,6 +88,9 @@ public class ResumableUploadService {
     /** Maximum total on-disk capacity in bytes; 0 or negative means unlimited. */
     private volatile long maxTotalBytes;
 
+    /** When true, verifyChecksum is on and a chunk missing a checksum is rejected (M1). */
+    private volatile boolean requireChecksum;
+
     /** Async merge executor; when null, async merge is disabled and only the synchronous entry is used. */
     private volatile ExecutorService asyncExecutor;
 
@@ -221,6 +224,15 @@ public class ResumableUploadService {
     }
 
     /**
+     * When {@code verifyChecksum} is on, setting {@code requireChecksum=true} rejects any chunk
+     * that arrives without a checksum, so a client cannot skip integrity verification by
+     * omitting the {@code chunkMd5} field.
+     */
+    public void setRequireChecksum(boolean requireChecksum) {
+        this.requireChecksum = requireChecksum;
+    }
+
+    /**
      * Uploads a chunk.
      *
      * <p>Already-uploaded chunks are skipped (idempotent), which enables resumable upload.</p>
@@ -249,6 +261,10 @@ public class ResumableUploadService {
         if (chunkIndex < 0 || chunkIndex >= chunkTotal) {
             throw new UploadValidationException("chunkIndex out of range: " + chunkIndex);
         }
+        long declaredFileSize = request.getFileSize();
+        if (declaredFileSize < 0) {
+            throw new UploadValidationException("fileSize must not be negative: " + declaredFileSize);
+        }
         long chunkSize = request.getChunkSize() > 0 ? request.getChunkSize() : DEFAULT_CHUNK_SIZE;
 
         try (IdentifierLockHandle lockHandle = identifierLockProvider.lock(identifier)) {
@@ -256,12 +272,12 @@ public class ResumableUploadService {
             if (task == null) {
                 // First chunk of this identifier: create the task record before storing any chunk.
                 StringUtil.requireSafeFileName(request.getFileName());
-                if (maxFileBytes > 0 && request.getFileSize() > maxFileBytes) {
-                    throw new UploadValidationException("File size " + request.getFileSize()
+                if (maxFileBytes > 0 && declaredFileSize > maxFileBytes) {
+                    throw new UploadValidationException("File size " + declaredFileSize
                             + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
                 }
-                if (maxTotalBytes > 0 && request.getFileSize() > 0) {
-                    checkQuota(identifier, request.getFileSize());
+                if (maxTotalBytes > 0 && declaredFileSize > 0) {
+                    checkQuota(identifier, declaredFileSize);
                 }
                 task = UploadTask.from(request);
                 task.setChunkSize(chunkSize);
@@ -285,24 +301,47 @@ public class ResumableUploadService {
                 }
             }
             if (!task.getUploadedChunks().contains(chunkIndex)) {
-                // Chunk not yet uploaded: store it, optionally verify it, then record the progress.
-                chunkStorage.saveChunk(identifier, chunkIndex, in);
+                // Chunk not yet uploaded: store it with a streaming byte limit so an oversized
+                // chunk is aborted mid-stream (M5), then verify checksum before recording progress.
+                long actualChunkBytes;
+                try {
+                    actualChunkBytes = chunkStorage.saveChunk(identifier, chunkIndex, in, maxChunkBytes);
+                } catch (IOException sizeExceeded) {
+                    // The streaming limit aborted the write; the temp file is already cleaned up
+                    // by the storage layer, and no progress is recorded.
+                    if (maxChunkBytes > 0 && sizeExceeded.getMessage() != null
+                            && sizeExceeded.getMessage().contains("maximum allowed size")) {
+                        throw new UploadValidationException("Chunk " + chunkIndex
+                                + " exceeds the maximum allowed size of " + maxChunkBytes + " bytes");
+                    }
+                    throw sizeExceeded;
+                }
+                File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
                 if (maxChunkBytes > 0) {
-                    // Reject an oversized chunk and discard its bytes before any progress is recorded.
-                    File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
-                    if (saved.isFile() && saved.length() > maxChunkBytes) {
+                    long savedLength = saved.isFile() ? saved.length() : actualChunkBytes;
+                    if (savedLength > maxChunkBytes) {
                         chunkStorage.deleteChunk(identifier, chunkIndex);
                         throw new UploadValidationException("Chunk " + chunkIndex
                                 + " exceeds the maximum allowed size of " + maxChunkBytes + " bytes");
                     }
                 }
-                if (verifyChecksum && StringUtil.isNotBlank(request.getChunkMd5())) {
-                    // Recompute the MD5 of the persisted chunk and compare it with the expected
-                    // value, so a corrupted transfer is rejected before the progress is recorded.
-                    File saved = chunkStorage.getChunkFile(identifier, chunkIndex);
+                if (verifyChecksum && requireChecksum) {
+                    String expected = request.getChunkMd5();
+                    if (StringUtil.isBlank(expected)) {
+                        chunkStorage.deleteChunk(identifier, chunkIndex);
+                        throw new UploadValidationException("Chunk " + chunkIndex
+                                + " is missing the required checksum (verify-checksum + require-checksum)");
+                    }
+                    String actual = ChecksumUtil.md5(saved);
+                    if (!actual.equalsIgnoreCase(expected.trim())) {
+                        chunkStorage.deleteChunk(identifier, chunkIndex);
+                        throw new ChecksumMismatchException(
+                                "Chunk " + chunkIndex + " MD5 mismatch, expected "
+                                        + expected + ", actual " + actual);
+                    }
+                } else if (verifyChecksum && StringUtil.isNotBlank(request.getChunkMd5())) {
                     String actual = ChecksumUtil.md5(saved);
                     if (!actual.equalsIgnoreCase(request.getChunkMd5().trim())) {
-                        // Only reject the offending chunk; keep the other uploaded chunks intact.
                         chunkStorage.deleteChunk(identifier, chunkIndex);
                         throw new ChecksumMismatchException(
                                 "Chunk " + chunkIndex + " MD5 mismatch, expected "
@@ -326,7 +365,7 @@ public class ResumableUploadService {
             throw new UploadValidationException("chunkSize mismatch: expected "
                     + task.getChunkSize() + ", got " + chunkSize + " (" + identifier + ")");
         }
-        if (request.getFileSize() > 0 && task.getFileSize() > 0 && request.getFileSize() != task.getFileSize()) {
+        if (request.getFileSize() >= 0 && task.getFileSize() >= 0 && request.getFileSize() != task.getFileSize()) {
             throw new UploadValidationException("fileSize mismatch: expected "
                     + task.getFileSize() + ", got " + request.getFileSize() + " (" + identifier + ")");
         }
@@ -469,7 +508,7 @@ public class ResumableUploadService {
             if (task.isMerged()) {
                 return UploadResult.merged(task, task.getFinalPath(), task.getFinalFileSize());
             }
-            if (maxFileBytes > 0 && task.getFileSize() > maxFileBytes) {
+            if (maxFileBytes > 0 && task.getFileSize() > 0 && task.getFileSize() > maxFileBytes) {
                 throw new UploadValidationException("File size " + task.getFileSize()
                         + " exceeds the maximum allowed size of " + maxFileBytes + " bytes (" + identifier + ")");
             }

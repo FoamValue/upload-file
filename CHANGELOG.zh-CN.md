@@ -7,6 +7,52 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.0-rc.9] - 2026-09-28
+
+**安全收口版本（配额绕过 / 默认无上限 / 校验可跳过 / 路径遍历 / 日志注入 / 清理中断）。** 以资深
+Maven 依赖开发者视角对全仓库做安全审查，修复 **7 项问题（2 高危 + 5 中危）**：配额与大小限制信任
+客户端声明值且不按实际字节计数（H1）；starter 默认 `max-chunk-size=-1`，请求体无任何上限（H2）；
+`verify-checksum` 开启时缺失 `chunkMd5` 直接跳过校验（M1）；下载 `finalPath` 未经规范化前缀校验、
+可逃逸合并目录（M2）；访问日志拼接可控字段存在注入风险（M3）；孤儿清理单条脏数据中断整轮回收
+（M4）；超大分块先完整落盘后校验（M5）。修复后全量 **580 个单元测试通过、0 失败**；API 与
+`upload-file.*` 属性面保持冻结，`1.0.0` 仅版本号与发布公告。
+
+### 修复
+
+- **配额 / 大小限制信任声明值且不计数实际字节**（H1，高危）：`ResumableUploadService.uploadChunk`
+  新增 `fileSize < 0` 拒绝；分块落盘后以磁盘实测长度复核 `maxChunkBytes`，超限即删除并拒绝，
+  不再信任客户端声明值。
+- **默认配置无任何请求体上限**（H2，高危）：`max-chunk-size` 默认 `-1` → **10 MB**；
+  `max-request-size` 未显式配置时按 `max-chunk-size` / `max-file-size` 推导（+1 MB 冗余）；
+  三层上限全部无界时**启动即失败**（`IllegalStateException`），拒绝「默认不安全」。
+- **MD5 校验可跳过**（M1，中危）：新增 `upload-file.require-checksum`（默认 `false`，向后兼容）；
+  `verify-checksum + require-checksum` 时缺失 `chunkMd5` 的分块被拒绝并删除。
+- **下载 `finalPath` 逃逸合并目录**（M2，中危）：`ResumableDownloadService.resolveFile` 对
+  `finalPath` 做 `getCanonicalFile()` 规范化后的前缀校验，目标不在合并目录内一律按不存在处理。
+- **访问日志注入**（M3，中危）：servlet 与 starter 的访问日志统一经 `sanitizeLog()` 过滤换行 / 回车 /
+  制表符等控制字符（CWE-117）。
+- **孤儿清理单条中断**（M4，中危）：`StorageCleanupService.cleanupOrphans` 逐条 `try-catch` 隔离，
+  单条脏数据不再中断整轮回收；`hasTask()` 对非法标识符按「无任务」处理。
+- **超大分块先落盘后校验**（M5，中危）：`ChunkStorage` 新增带字节上限的流式重载
+  `saveChunk(identifier, chunkIndex, in, maxBytes)`，写入超限即中止并清理临时文件（默认实现对旧
+  接口兼容委托）。
+
+### 变更
+
+- **`upload-file.max-chunk-size` 默认 `-1` → `10 MB`**：**breaking-default**（此前未显式配置的部署
+  首次遇到 10 MB 分块上限）；显式配置者不受影响。
+- **三层上限（request / chunk / file）全部无界时启动失败**：**fail-fast**；配置任一上限即可正常启动。
+
+### 构建
+
+- **版本**：全模块 `1.0.0-rc.8 → 1.0.0-rc.9`（含 `upload-file-bom` 与三个 demo）；本地 `.m2`
+  已 `mvn install` 同步到 rc.9。
+
+### 文档
+
+- 新增[安全修复报告](security-fix-report/security-fix-report.html)：7 项漏洞的原理（含攻击路径）、
+  修复方案（代码）与验证结果（580 用例明细）。
+
 ## [1.0.0-rc.8] - 2026-09-15
 
 **GA 前最后收口版本（配额/锁正确性 + 审计上下文 + 发布工程）。** 回应

@@ -4,12 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.8` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0-rc.8` |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.9` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0-rc.9` |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.8` (final pre-GA closure) — **the API is frozen once this version is merged**;
+> 🚧 Status: **Pre-release** `1.0.0-rc.9` (security closure) — **the API stays frozen**;
 > `1.0.0` is a version bump and announcement only. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
 > [Changelog](CHANGELOG.md).
 
@@ -20,6 +20,11 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 > startup** and corrects counter drift — no extra configuration. (3) the distributed identifier lock now renews its
 > lease while held, so a long merge no longer loses mutual exclusion when `lock.ttl` expires
 > (`lock.renew-interval` overrides the cadence; default `ttl/3`).
+
+> ⚠️ **rc.9 upgrade notice (breaking default):** the starter's `upload-file.max-chunk-size` now defaults to
+> **10 MB** (was unlimited) and startup **fails** if request / chunk / file limits are all unbounded — set any one
+> limit to restore startup. With `upload-file.require-checksum=true`, a chunk missing `chunkMd5` is rejected instead
+> of silently skipping verification. See the [Changelog](CHANGELOG.md).
 
 > ⚠️ **rc.7 upgrade notice (breaking default):** with `multipart.strategy=component` (the default), an unset
 > `upload-file.max-request-size` is now **derived** (bounded) from `max-chunk-size`/`max-file-size` instead of
@@ -98,7 +103,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
         <dependency>
             <groupId>cn.chenxinjie</groupId>
             <artifactId>upload-file-bom</artifactId>
-            <version>1.0.0-rc.8</version>
+            <version>1.0.0-rc.9</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -121,7 +126,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.8</version>
+    <version>1.0.0-rc.9</version>
 </dependency>
 ```
 
@@ -131,7 +136,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.8</version>
+    <version>1.0.0-rc.9</version>
 </dependency>
 ```
 

@@ -7,6 +7,63 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.0-rc.9] - 2026-09-28
+
+**Security closure release (quota bypass / unbounded defaults / skippable checksum / path traversal /
+log injection / cleanup interruption).** A security review of the whole repository from a senior
+Maven-dependency-developer perspective found and fixed **7 issues (2 high + 5 medium)**: quota and
+size limits trusted client-declared values without counting actual bytes (H1); the starter defaulted
+`max-chunk-size=-1`, leaving request bodies unbounded (H2); a missing `chunkMd5` skipped verification
+entirely when `verify-checksum` was on (M1); the download `finalPath` could escape the merged dir
+because it was not prefix-checked after canonicalisation (M2); access logs concatenated attacker-
+controlled fields without sanitisation (M3); one dirty record aborted the whole orphan-cleanup pass
+(M4); oversized chunks were fully written to disk before being size-checked (M5). After the fixes the
+full suite passes: **580 unit tests, 0 failures**. The API and the `upload-file.*` property surface
+stay frozen; `1.0.0` is a version bump and announcement only.
+
+### Fixed
+
+- **Quota / size limits trusted declared values without counting actual bytes** (H1, high):
+  `ResumableUploadService.uploadChunk` rejects a negative `fileSize`; after saving, the chunk's
+  on-disk length is re-checked against `maxChunkBytes`, and an oversized chunk is deleted and rejected —
+  client-declared values are no longer trusted.
+- **Unbounded default request configuration** (H2, high): `max-chunk-size` defaults to **10 MB**
+  (was `-1`); an unset `max-request-size` is derived from `max-chunk-size` / `max-file-size`
+  (+1 MB slack); if request, chunk and file limits are all unbounded, **startup fails**
+  (`IllegalStateException`) instead of running insecure-by-default.
+- **MD5 verification was skippable** (M1, medium): new `upload-file.require-checksum` (default
+  `false`, backward compatible); with `verify-checksum + require-checksum` a chunk missing
+  `chunkMd5` is rejected and deleted.
+- **Download `finalPath` could escape the merged dir** (M2, medium): `ResumableDownloadService.
+  resolveFile` canonicalises both paths and requires the file to stay under the merged dir;
+  anything outside is treated as absent.
+- **Access-log injection** (M3, medium): servlet and starter access logs now pass every value through
+  `sanitizeLog()`, which strips newline / carriage-return / tab and other control characters (CWE-117).
+- **One dirty record aborted the whole orphan cleanup** (M4, medium):
+  `StorageCleanupService.cleanupOrphans` isolates each identifier in a `try-catch`; a single bad
+  entry no longer stops the pass, and `hasTask()` treats illegal identifier names as "no task".
+- **Oversized chunks written to disk before being checked** (M5, medium): `ChunkStorage` gains a
+  byte-bounded streaming overload `saveChunk(identifier, chunkIndex, in, maxBytes)` that aborts
+  mid-write and cleans up when the limit is exceeded (the default implementation delegates to the
+  old interface for compatibility).
+
+### Changed
+
+- **`upload-file.max-chunk-size` default `-1` → `10 MB`**: **breaking-default** for deployments that
+  never configured it; explicitly configured values are unaffected.
+- **Startup fails when request / chunk / file limits are all unbounded**: **fail-fast**; setting any
+  one limit restores normal startup.
+
+### Build
+
+- **Version**: all modules `1.0.0-rc.8 → 1.0.0-rc.9` (including `upload-file-bom` and the three
+  demos); local `.m2` synced via `mvn install`.
+
+### Docs
+
+- Added the [security fix report](security-fix-report/security-fix-report.html): root cause (attack
+  path), fix (code) and verification (580-test breakdown) for each of the 7 issues.
+
 ## [1.0.0-rc.8] - 2026-09-15
 
 **Final pre-GA closure release (quota/lock correctness + audit context + release engineering).**

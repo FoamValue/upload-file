@@ -431,11 +431,11 @@ public class StorageCleanupServiceTest {
     }
 
     @Test
-    public void orphanDeletionFailurePropagates() throws Exception {
+    public void orphanDeletionFailureIsIsolated() throws Exception {
         TaskStore store = newStore();
         LocalFileChunkStorage chunks = newChunks();
-        // An orphan merged dir whose contents cannot be deleted (read-only subdir) must
-        // surface the failure instead of silently leaving the data behind.
+        // An orphan merged dir whose contents cannot be deleted (read-only subdir) must be
+        // isolated so the rest of the cleanup pass continues (M4), instead of aborting the whole run.
         File orphan = new File(mergedDir(), "orphan");
         File sub = new File(orphan, "sub");
         Files.createDirectories(sub.toPath());
@@ -443,7 +443,8 @@ public class StorageCleanupServiceTest {
         sub.setWritable(false);
         try {
             StorageCleanupService svc = new StorageCleanupService(store, chunks, mergedDir(), HOUR, true);
-            assertThrows(UncheckedIOException.class, svc::cleanup);
+            // The cleanup must not throw — the bad orphan is skipped and the pass completes.
+            svc.cleanup();
         } finally {
             sub.setWritable(true);
         }
@@ -475,8 +476,9 @@ public class StorageCleanupServiceTest {
         private final Map<String, List<Integer>> chunks = new HashMap<>();
 
         @Override
-        public void saveChunk(String identifier, int chunkIndex, InputStream in) {
+        public long saveChunk(String identifier, int chunkIndex, InputStream in) {
             chunks.computeIfAbsent(identifier, k -> new ArrayList<>()).add(chunkIndex);
+            return 0;
         }
 
         @Override
