@@ -14,6 +14,12 @@
 > release engineering" and adds no large new feature. After this release the **API is frozen**; `1.0.0` only
 > bumps the version and publishes the announcement.
 >
+> ✅ **Status: implemented and released in `1.0.0-rc.8` (2026-09-15).** T44–T53 are all done: quota/lock
+> correctness closure (auto-reconcile, merged-unconfirmed reclaim, lease renewal, atomic migration, batched
+> `list()`), audit context `AccessContext`, `access-log` noise reduction, `TrustedUploadService` auto-wiring,
+> the unified-envelope example, `upload-file-bom`, the V1.0.0 SOW / API freeze and the binary-compat gate —
+> see the [Changelog](../CHANGELOG.md).
+>
 > Feedback sources: `doc/user-feedback/upload-file-rc7-usage-feedback.md` (§5 P1-1/P1-2/P1-3, P2-1/P2-2/P2-3/P2-4,
 > §4-2); historical `doc/user-feedback/upload-file-rc6-migration-feedback.md` (§5 P2-1/P2-2),
 > `doc/user-feedback/upload-file-usage-feedback.md`.

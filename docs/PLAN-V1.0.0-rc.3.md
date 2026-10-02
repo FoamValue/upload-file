@@ -7,7 +7,10 @@
 > over from the rc.1 → rc.2 analysis ([ANALYSIS](ANALYSIS-V1.0.0-rc.2.md)) and freezes the scope and API
 > contract for the 1.0.0 GA.
 >
-> ⏳ **Status: planned, not yet implemented.**
+> ✅ **Status: implemented and released in `1.0.0-rc.3`.** All tasks (T6–T13) are done: access control
+> (`security.*`), multi-instance constraints and the optional scheduling lock, file-size / capacity quota,
+> minimal observability, the metadata migration tool and format versioning, the compat regression suite and
+> the V1.0.0 SOW scope definition — see the [Changelog](../CHANGELOG.md).
 
 ## 1. Goals & Scope
 

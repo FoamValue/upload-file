@@ -11,6 +11,11 @@
 > **rc.8 是 `1.0.0` GA 前的最后一个 rc**：只做「正确性收尾 + 审计合规 + GA 发布工程」，不再引入新的大特性；
 > 本版发布后进入 **API 冻结**，`1.0.0` 仅做版本号与发布公告。
 >
+> ✅ **状态：已在 `1.0.0-rc.8`（2026-09-15）实现并发布。** T44–T53 全部完成：配额/锁正确性收口
+> （自动对账、合并未确认回收、续租、原子迁移、`list()` 分批）、审计上下文 `AccessContext`、`access-log`
+> 降噪、`TrustedUploadService` 自动装配、统一信封示例、`upload-file-bom`、V1.0.0 SOW / API 冻结与
+> 二进制兼容门禁——见[更新日志](../CHANGELOG.zh-CN.md)。
+>
 > 反馈来源：`doc/user-feedback/upload-file-rc7-usage-feedback.md`（§5 P1-1/P1-2/P1-3、P2-1/P2-2/P2-3/P2-4、§4-2）；
 > 历史反馈 `doc/user-feedback/upload-file-rc6-migration-feedback.md`（§5 P2-1/P2-2）、
 > `doc/user-feedback/upload-file-usage-feedback.md`。
