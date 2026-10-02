@@ -4,13 +4,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0-rc.9` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0-rc.9` |
+| Coordinates | `cn.chenxinjie:upload-file:1.0.0` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0` |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 Status: **Pre-release** `1.0.0-rc.9` (security closure) — **the API stays frozen**;
-> `1.0.0` is a version bump and announcement only. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
+> ✅ Status: **Stable** `1.0.0` (GA) — the API is frozen. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
 > [Changelog](CHANGELOG.md).
 
 > ⚠️ **rc.8 upgrade notice:** (1) `observability.access-log` output now defaults to `task` level (deny + task-level
@@ -21,7 +20,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 > lease while held, so a long merge no longer loses mutual exclusion when `lock.ttl` expires
 > (`lock.renew-interval` overrides the cadence; default `ttl/3`).
 
-> ⚠️ **rc.9 upgrade notice (breaking default):** the starter's `upload-file.max-chunk-size` now defaults to
+> ⚠️ **1.0.0 upgrade notice (from rc.8; breaking default):** the starter's `upload-file.max-chunk-size` now defaults to
 > **10 MB** (was unlimited) and startup **fails** if request / chunk / file limits are all unbounded — set any one
 > limit to restore startup. With `upload-file.require-checksum=true`, a chunk missing `chunkMd5` is rejected instead
 > of silently skipping verification. See the [Changelog](CHANGELOG.md).
@@ -103,7 +102,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
         <dependency>
             <groupId>cn.chenxinjie</groupId>
             <artifactId>upload-file-bom</artifactId>
-            <version>1.0.0-rc.9</version>
+            <version>1.0.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -126,7 +125,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.9</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -136,7 +135,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.9</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -527,7 +526,7 @@ on a real Boot 4 (`jakarta`) runtime.
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.7.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.

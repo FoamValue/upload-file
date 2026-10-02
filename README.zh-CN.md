@@ -4,12 +4,12 @@
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0-rc.9`（父 POM / 聚合器）；BOM：`cn.chenxinjie:upload-file-bom:1.0.0-rc.9` |
+| 坐标 | `cn.chenxinjie:upload-file:1.0.0`（父 POM / 聚合器）；BOM：`cn.chenxinjie:upload-file-bom:1.0.0` |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> 🚧 状态：**Pre-release** `1.0.0-rc.9`（安全收口）— **API 保持冻结**，`1.0.0` 仅版本号与发布公告。
+> ✅ 状态：**Stable** `1.0.0`（GA）— **API 已冻结**。
 > 范围与兼容承诺见 [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)与[更新日志](CHANGELOG.zh-CN.md)。
 
 > ⚠️ **rc.8 升级提示**：①`observability.access-log` 的输出默认收敛为 `task` 级（deny + 任务级事件；每个任务
@@ -17,7 +17,7 @@
 > ②`quota.store=redis` 现于**启动期自动对账**并修正计数漂移，行为更正确、无需额外配置。③分布式 identifier 锁新增
 > 持有期续租，长合并不再因 `lock.ttl` 到期而失去互斥（`lock.renew-interval` 可覆盖，默认 `ttl/3`）。
 
-> ⚠️ **rc.9 升级提示（breaking 默认）**：starter 的 `upload-file.max-chunk-size` 默认改为 **10 MB**（原为不限），
+> ⚠️ **1.0.0 升级提示（自 rc.8，breaking 默认）**：starter 的 `upload-file.max-chunk-size` 默认改为 **10 MB**（原为不限），
 > 且 request / chunk / file 三层上限全部无界时**启动失败**——配置任一上限即可恢复启动。设
 > `upload-file.require-checksum=true` 后，缺失 `chunkMd5` 的分块将被拒绝，不再静默跳过校验。详见[更新日志](CHANGELOG.zh-CN.md)。
 
@@ -85,7 +85,7 @@
         <dependency>
             <groupId>cn.chenxinjie</groupId>
             <artifactId>upload-file-bom</artifactId>
-            <version>1.0.0-rc.9</version>
+            <version>1.0.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -108,7 +108,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.0-rc.9</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -118,7 +118,7 @@
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.0-rc.9</version>
+    <version>1.0.0</version>
 </dependency>
 ```
 
@@ -489,7 +489,7 @@ mvn -pl example/upload-file-boot4-demo spring-boot:run
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # 或
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.0-rc.7.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.0.jar
 ```
 
 浏览器访问 <http://localhost:8080/>，选择一个文件体验分片上传、暂停续传、
