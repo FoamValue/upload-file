@@ -106,9 +106,10 @@ upload-file（父 POM / 聚合器）
 ## 扩展点
 
 - **更换任务存储**：实现 `TaskStore`，接入 Redis / 数据库 / 云盘。
-- **更换分片存储**：实现 `ChunkStorage`，接入 OSS / HDFS / S3。rc.9 新增带字节上限的流式重载
-  `saveChunk(identifier, chunkIndex, in, maxBytes)`（`default` 方法委托旧 3 参接口，既有实现零改动）；
-  实现方可覆写它，在写入中途强制限额而非事后校验。
+- **更换分片存储**：实现 `ChunkStorage`，接入 OSS / HDFS / S3。自 1.0.0 起提供带字节上限的流式重载
+  `saveChunk(identifier, chunkIndex, in, maxBytes)`（`default` 方法经计数流委托冻结的 3 参接口，既有实现零改动——
+  3 参方法在 GA 版本恢复为 `void` 签名，rc.9 的返回类型变更经二进制兼容门禁检出后回退）；
+  实现可覆写该重载以在写入中途中止超限分块，而非事后校验。
 - **覆盖默认组件**：Spring Boot 下所有核心 Bean 均为
   `@ConditionalOnMissingBean`，定义同名 Bean 即可覆盖。
 

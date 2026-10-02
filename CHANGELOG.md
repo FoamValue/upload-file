@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.0] - 2026-10-02
+
+**First stable GA release.** Same feature set as `1.0.0-rc.9` plus one binary-compatibility fix:
+`ChunkStorage.saveChunk(String, int, InputStream)` is restored to its original `void` signature
+(rc.7/rc.8-compatible), so custom `ChunkStorage` implementations compiled against earlier releases
+keep working unchanged; the rc.9 byte-bounded behaviour is preserved through a new
+`default long saveChunk(String, int, InputStream, long maxBytes)` overload that counts actual bytes
+and aborts mid-stream when the limit is exceeded.
+
+### Fixed
+
+- **Binary incompatibility of `ChunkStorage.saveChunk` (rc.9 → fixed before GA):** rc.9 changed the
+  3-arg `saveChunk` return type from `void` to `long`, which broke custom `ChunkStorage`
+  implementations at the bytecode level. In `1.0.0` the 3-arg method is `void` again; new code should
+  prefer the 4-arg overload, which returns the written byte count and can abort an oversized chunk
+  mid-write (`LocalFileChunkStorage` overrides it; the default delegates through a counting stream,
+  so the actual-bytes size guarantee holds for every implementation).
+
+### Changed
+
+- **Version**: all modules `1.0.0-rc.9 → 1.0.0` (including `upload-file-bom` and the three demos);
+  local `.m2` synced via `mvn install`.
+
+### Docs
+
+- Added [`SECURITY.md`](SECURITY.md) with the vulnerability reporting and disclosure policy.
+- Security report & design: noted that the rc.9 `saveChunk` return-type change was reverted to keep
+  binary compatibility in the GA release.
+
 ## [1.0.0-rc.9] - 2026-09-28
 
 **Security closure release (quota bypass / unbounded defaults / skippable checksum / path traversal /

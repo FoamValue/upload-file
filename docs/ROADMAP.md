@@ -12,7 +12,14 @@
 - **`V1.0.0-rc.7`** (store correctness & extension-point consistency, driven by the [rc.6 migration feedback](../doc/user-feedback/upload-file-rc6-migration-feedback.md)) is **implemented in `1.0.0-rc.7`**: Redis index leak + `list()` N+1, starter consuming a host `UploadErrorRenderer` bean, multipart safe default, distributed `IdentifierLockProvider`, atomic `QuotaStore`, trusted-read API consolidation, `AbstractAccessControl`, and starter wiring/security guardrails — see [V1.0.0-rc.7 Task Plan](PLAN-V1.0.0-rc.7.md) and the [Changelog](../CHANGELOG.md).
 - **`V1.0.0-rc.8`** (final pre-GA closure: quota/lock correctness + audit context + release engineering, driven by the [rc.7 usage feedback](../doc/user-feedback/upload-file-rc7-usage-feedback.md)) is **implemented in `1.0.0-rc.8`**: `RedisQuotaStore` auto-reconcile and merged-unconfirmed quota reclaim, `RedisIdentifierLockProvider` lease renewal, atomic `RedisTaskStore` migration and batched `list()`, audit context `AccessContext`, `access-log` noise reduction, `TrustedUploadService` auto-wiring, unified-envelope example, `upload-file-bom`, V1.0.0 SOW/API freeze and a binary-compat gate — see [V1.0.0-rc.8 Task Plan](PLAN-V1.0.0-rc.8.md), the [V1.0.0 SOW](PLAN-V1.0.0.md) and the [Changelog](../CHANGELOG.md).
 - **`V1.0.0-rc.9`** (security closure inside the freeze, driven by the [rc.8 usage feedback](../doc/user-feedback/upload-file-rc8-usage-feedback.md)) is **implemented in `1.0.0-rc.9`**: quota/size limits count actual bytes instead of trusting declared values, `max-chunk-size` defaults to 10 MB and startup fails when all limits are unbounded, `require-checksum` makes verification non-skippable, download path canonical-prefix validation, access-log injection filtering, per-entry isolated orphan cleanup, and a byte-bounded `ChunkStorage.saveChunk` overload — see the [V1.0.0 SOW / API freeze](PLAN-V1.0.0.md) and the [Changelog](../CHANGELOG.md).
-- **After rc.8 the API is frozen**: `1.0.0` (GA) is a version bump and announcement only, with no code change; from `1.0.0` the project follows semantic versioning, so breaking changes may only land in `2.0.0`. The javax line (`upload-file-servlet` / `upload-file-spring-boot-starter`) is maintenance-only from GA and converges to a single jakarta line in `2.0.0`.
+- **`1.0.0` (GA) released 2026-10-02**: the frozen rc.8 surface plus the rc.9 security closure
+  (actual-byte size counting, 10 MB default chunk limit with fail-fast, non-skippable checksum,
+  download path canonical-prefix validation, log-injection filtering, isolated cleanup,
+  byte-bounded chunk writes), with one binary-compat fix — `ChunkStorage.saveChunk` keeps its
+  `void` 3-arg signature (frozen since rc.7) and the byte-bounded overload is a `default` method.
+  From `1.0.0` the project follows semantic versioning, so breaking changes may only land in
+  `2.0.0`. The javax line (`upload-file-servlet` / `upload-file-spring-boot-starter`) is
+  maintenance-only from GA and converges to a single jakarta line in `2.0.0`.
 - P1/P2 items are pending confirmation.
 
 ## Complete Optimization List

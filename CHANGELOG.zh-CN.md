@@ -7,6 +7,31 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.0] - 2026-10-02
+
+**首个稳定 GA 版本。** 与 `1.0.0-rc.9` 功能一致，仅多一项二进制兼容修复：
+`ChunkStorage.saveChunk(String, int, InputStream)` 恢复为原有 `void` 签名（与 rc.7/rc.8 兼容），
+按旧版本编译的自定义 `ChunkStorage` 实现无需改动即可继续工作；rc.9 引入的字节上限行为通过新的
+`default long saveChunk(String, int, InputStream, long maxBytes)` 重载保留——按实际写入字节计数，
+超限即中止。
+
+### 修复
+
+- **`ChunkStorage.saveChunk` 二进制不兼容（rc.9 引入，GA 前修复）：** rc.9 把 3 参 `saveChunk`
+  返回类型从 `void` 改为 `long`，在字节码层面破坏自定义 `ChunkStorage` 实现。1.0.0 中 3 参方法
+  恢复为 `void`；新代码应优先使用 4 参重载——返回实际写入字节数，并可在写入中途中止超限分块
+  （`LocalFileChunkStorage` 覆写之；默认实现经计数流委托，保证所有实现的「按实际字节」限额语义）。
+
+### 变更
+
+- **版本**：全模块 `1.0.0-rc.9 → 1.0.0`（含 `upload-file-bom` 与三个 demo）；本地 `.m2`
+  已 `mvn install` 同步到 1.0.0。
+
+### 文档
+
+- 新增 [`SECURITY.md`](SECURITY.md)：漏洞报告与披露政策。
+- 安全修复报告与设计文档：注明 rc.9 的 `saveChunk` 返回类型变更已在 GA 版本中回退以保持二进制兼容。
+
 ## [1.0.0-rc.9] - 2026-09-28
 
 **安全收口版本（配额绕过 / 默认无上限 / 校验可跳过 / 路径遍历 / 日志注入 / 清理中断）。** 以资深

@@ -110,10 +110,12 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
 ## Extension Points
 
 - **Swap task storage**: implement `TaskStore` to use Redis, a database, or cloud storage.
-- **Swap chunk storage**: implement `ChunkStorage` to use OSS, HDFS, or S3. rc.9 adds a
+- **Swap chunk storage**: implement `ChunkStorage` to use OSS, HDFS, or S3. Since 1.0.0 a
   byte-bounded streaming overload `saveChunk(identifier, chunkIndex, in, maxBytes)` (a `default`
-  method that delegates to the old 3-arg interface, so existing implementations keep working);
-  implementations may override it to enforce the limit mid-write instead of after the fact.
+  method that delegates to the frozen 3-arg interface through a counting stream, so existing
+  implementations keep working — the 3-arg method was restored to its `void` signature for GA
+  after a short-lived rc.9 return-type change was rejected by the binary-compat gate);
+  implementations may override the overload to enforce the limit mid-write instead of after the fact.
 - **Override default components**: under Spring Boot every core bean is
   `@ConditionalOnMissingBean`; define a bean with the same name to override it.
 

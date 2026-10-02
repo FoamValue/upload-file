@@ -3,12 +3,14 @@
 > 🇨🇳 [中文](PLAN-V1.0.0.zh-CN.md)
 >
 > This is the Statement of Work for the `1.0.0` GA. After rc.8 is merged the **public API and the
-> `upload-file.*` property surface are frozen**; `1.0.0` is a version bump and announcement only,
-> with no code change. From `1.0.0` the project follows [semantic versioning](https://semver.org/):
-> breaking changes may only land in `2.0.0`. `1.0.0-rc.9` is the **security closure** inside the
-> freeze: additive changes only (new `require-checksum` property) plus tightened defaults
-> (`max-chunk-size` defaults to 10 MB; startup fails when the request/chunk/file limits are all
-> unbounded) — no frozen contract is broken (see §3).
+> `upload-file.*` property surface are frozen**; `1.0.0` (released 2026-10-02) is the GA of that
+> frozen surface, with one binary-compat fix over rc.9: the short-lived rc.9 change of the
+> `ChunkStorage.saveChunk` 3-arg return type was reverted as non-additive (see §3). From `1.0.0`
+> the project follows [semantic versioning](https://semver.org/): breaking changes may only land
+> in `2.0.0`. `1.0.0-rc.9` was the **security closure** inside the freeze: additive changes only
+> (new `require-checksum` property) plus tightened defaults (`max-chunk-size` defaults to 10 MB;
+> startup fails when the request/chunk/file limits are all unbounded) — no frozen contract is
+> broken (see §3).
 
 ## 1. GA Scope
 
@@ -79,6 +81,14 @@ Added/changed in rc.9 (security closure, additive, part of the frozen surface):
 | `max-chunk-size` | `10 MB` | default tightened from `-1` (unlimited) to 10 MB (breaking-default, default value only; explicit config is unaffected) |
 | request/chunk/file limits | fail-fast when all unbounded | unset `max-request-size` is derived from `max-chunk-size`/`max-file-size` (+1 MB); startup fails when all three are unbounded (new behavior) |
 
+**GA binary-compat adjustment (1.0.0):** the rc.9 draft changed
+`ChunkStorage.saveChunk(String, int, InputStream)` from `void` to `long`; because that is
+non-additive (custom implementations compiled against rc.7/rc.8 would fail at the bytecode level),
+it was reverted before GA. `1.0.0` keeps the 3-arg method `void` (frozen since rc.7) and provides
+the byte-bounded overload `saveChunk(String, int, InputStream, long maxBytes)` as a `default`
+method, so the security-closure behaviour (actual-byte counting, mid-write abort) is preserved
+without breaking the frozen SPI.
+
 ## 4. `@Deprecated` Retention
 
 The following members are retained from `1.0.0` and **not removed**; removal is planned for `2.0.0`:
@@ -129,9 +139,11 @@ above (`access-log-scope=all`, optionally `quota.store=task-store`, `lock.identi
 
 `1.0.0` may be released if and only if:
 
-1. rc.7 feedback P1-1/P1-2/P1-3 are closed (T44/T45);
-2. rc.6 feedback deferred P2-1/P2-2 are closed (T47/T48);
-3. this SOW is reviewed and the API/property surface is frozen;
-4. the binary-compatibility gate is green against the rc.7 baseline and `upload-file-bom` is
-   publishable;
-5. the full JDK 17+ reactor `mvn verify` is green.
+1. ✅ rc.7 feedback P1-1/P1-2/P1-3 are closed (T44/T45) — verified in rc.8;
+2. ✅ rc.6 feedback deferred P2-1/P2-2 are closed (T47/T48) — verified in rc.8;
+3. ✅ this SOW is reviewed and the API/property surface is frozen;
+4. ✅ the binary-compatibility gate is green against the rc.7 baseline (revapi, 7/7 modules) and
+   `upload-file-bom` is publishable;
+5. ✅ the full JDK 17+ reactor `mvn verify` is green — **580 tests, 0 failures**.
+
+Released as **`1.0.0` on 2026-10-02**.

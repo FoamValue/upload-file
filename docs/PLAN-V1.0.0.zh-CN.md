@@ -3,11 +3,12 @@
 > 🇺🇸 [English](PLAN-V1.0.0.md)
 >
 > 本文件是 `1.0.0` GA 的范围声明（Statement of Work）。rc.8 合并后，**公开 API 与
-> `upload-file.*` 属性面即冻结**；`1.0.0` 仅做版本号提升与发布公告，不再改代码。自 `1.0.0`
-> 起遵循[语义化版本](https://semver.org/lang/zh-CN/)：破坏性变更只能进入 `2.0.0`。
-> `1.0.0-rc.9` 为冻结期内的**安全收口**：仅 additive 变更（新增 `require-checksum` 属性）与
-> 默认值收紧（`max-chunk-size` 默认 10 MB、三层上限全无界时启动失败），不破坏任何冻结契约
-> （见 §3）。
+> `upload-file.*` 属性面即冻结**；`1.0.0`（2026-10-02 发布）为该冻结面的 GA 版本，相对 rc.9
+> 仅多一项二进制兼容修复：rc.9 对 `ChunkStorage.saveChunk` 3 参方法返回类型的短暂改动按
+> 非 additive 处理并回退（见 §3）。自 `1.0.0` 起遵循[语义化版本](https://semver.org/lang/zh-CN/)：
+> 破坏性变更只能进入 `2.0.0`。`1.0.0-rc.9` 为冻结期内的**安全收口**：仅 additive 变更（新增
+> `require-checksum` 属性）与默认值收紧（`max-chunk-size` 默认 10 MB、三层上限全无界时启动失败），
+> 不破坏任何冻结契约（见 §3）。
 
 ## 一、GA 范围
 
@@ -77,6 +78,12 @@ rc.9 新增/变更（安全收口，additive，纳入冻结面）：
 | `max-chunk-size` | `10 MB` | 默认由 `-1`（不限）收紧为 10 MB（breaking-default，仅默认值；显式配置不受影响） |
 | request/chunk/file 三层上限 | 全部无界时启动失败 | `max-request-size` 未配置时按 `max-chunk-size`/`max-file-size` 推导（+1 MB）；全无界则 fail-fast（新增行为） |
 
+**GA 二进制兼容调整（1.0.0）**：rc.9 草稿曾将 `ChunkStorage.saveChunk(String, int, InputStream)`
+的返回类型由 `void` 改为 `long`；该变更属非 additive（按 rc.7/rc.8 编译的自定义实现会在字节码层
+失败），GA 前已回退。1.0.0 保持 3 参方法为 `void`（rc.7 起冻结），字节上限重载
+`saveChunk(String, int, InputStream, long maxBytes)` 以 `default` 方法提供，安全收口行为
+（按实际字节计数、写中途中止）不变且不破坏冻结的 SPI。
+
 ## 四、`@Deprecated` 项保留策略
 
 以下成员自 `1.0.0` 起保留、**不删除**，计划 `2.0.0` 移除：
@@ -124,8 +131,10 @@ rc.9 新增/变更（安全收口，additive，纳入冻结面）：
 
 `1.0.0` 可发布当且仅当：
 
-1. rc.7 反馈的 P1-1/P1-2/P1-3 全部闭环（T44/T45）；
-2. rc.6 反馈顺延的 P2-1/P2-2 闭环（T47/T48）；
-3. 本 SOW 评审通过，API 与属性面冻结；
-4. 二进制兼容门禁对 rc.7 基线全绿，`upload-file-bom` 发布可用；
-5. JDK 17+ 全 reactor `mvn verify` 全绿。
+1. ✅ rc.7 反馈的 P1-1/P1-2/P1-3 全部闭环（T44/T45）——rc.8 已验证；
+2. ✅ rc.6 反馈顺延的 P2-1/P2-2 闭环（T47/T48）——rc.8 已验证；
+3. ✅ 本 SOW 评审通过，API 与属性面冻结；
+4. ✅ 二进制兼容门禁对 rc.7 基线全绿（revapi，7/7 模块），`upload-file-bom` 发布可用；
+5. ✅ JDK 17+ 全 reactor `mvn verify` 全绿——**580 个测试，0 失败**。
+
+已于 **2026-10-02 以 `1.0.0` 发布**。
