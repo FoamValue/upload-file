@@ -203,10 +203,11 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.metadata-dir` | *(空)* | 任务元数据目录；为空使用内存（重启后丢失） |
 | `upload-file.metadata-store` | `auto` | `auto`（有 `metadata-dir` → file，否则 memory）/ `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | 是否校验分片 MD5 |
+| `upload-file.require-checksum` | `false` | 与 `verify-checksum=true` 搭配时，缺失 `chunkMd5` 的分片将被拒绝（rc.9；使校验不可跳过） |
 | `upload-file.upload-url` | `/upload` | 上传 Servlet 映射路径 |
 | `upload-file.download-url` | `/download` | 下载 Servlet 映射路径 |
-| `upload-file.max-chunk-size` | `-1` | 单个分片最大字节数：multipart 层与上传服务双重限制；`-1` 不限 |
-| `upload-file.max-request-size` | `-1` | 单个请求最大字节数（multipart）；`-1` 不限 |
+| `upload-file.max-chunk-size` | `10 MB` | 单个分片最大字节数（rc.9 起默认 10 MB，原为不限）：multipart 层与上传服务双重限制；`-1` 关闭分片上限 |
+| `upload-file.max-request-size` | `-1` | 单个请求最大字节数（multipart）；未配置（`-1`）时由 `max-chunk-size`/`max-file-size` 推导（+1 MB）；request / chunk / file 三层全部无界时启动失败（rc.7/rc.9） |
 | `upload-file.merge.fsync` | `true` | 改名落位前是否 fsync 合并临时文件 |
 | `upload-file.merge.atomic` | `true` | 是否采用「临时文件 + 原子改名」合并 |
 | `upload-file.cleanup.enabled` | `false` | 是否启动过期任务/孤儿清理调度 |

@@ -106,7 +106,9 @@ upload-file（父 POM / 聚合器）
 ## 扩展点
 
 - **更换任务存储**：实现 `TaskStore`，接入 Redis / 数据库 / 云盘。
-- **更换分片存储**：实现 `ChunkStorage`，接入 OSS / HDFS / S3。
+- **更换分片存储**：实现 `ChunkStorage`，接入 OSS / HDFS / S3。rc.9 新增带字节上限的流式重载
+  `saveChunk(identifier, chunkIndex, in, maxBytes)`（`default` 方法委托旧 3 参接口，既有实现零改动）；
+  实现方可覆写它，在写入中途强制限额而非事后校验。
 - **覆盖默认组件**：Spring Boot 下所有核心 Bean 均为
   `@ConditionalOnMissingBean`，定义同名 Bean 即可覆盖。
 
@@ -142,6 +144,27 @@ upload-file（父 POM / 聚合器）
 - **`access-log` 降噪**：`observability.access-log-scope` 控制日志量（`task` 默认记录 deny + 任务级事件、
   每个任务仅放行**首个分片**的 `upload` 日志、后续分片跳过；`deny` 仅 deny；`all` 恢复 rc.7 逐决策）。
   首分片识别由监听器持有的**有界 LRU identifier 集合**（上限 10000）完成，避免内存无界增长。
+
+## rc.9 安全机制
+
+rc.9 安全收口（见[更新日志](../CHANGELOG.zh-CN.md)）修复了资深安全评审发现的 7 个问题：声明值绕过配额、
+无界默认配置、可跳过的校验、路径穿越、日志注入、清理中断、以及落盘后才校验分片大小。
+
+- **配额/大小限制按实测字节计数**：`ResumableUploadService.uploadChunk` 拒绝负数 `fileSize`；保存后再以
+  磁盘实际长度对照 `maxChunkBytes` 复核，超限分片被删除并拒绝——不再信任客户端声明值。
+- **无界限制快速失败**：`max-chunk-size` 默认 10 MB（原为不限）；未配置的 `max-request-size` 由
+  `max-chunk-size` / `max-file-size` 推导（+1 MB 余量）；request / chunk / file 三层全部无界时启动抛
+  `IllegalStateException`，而非以不安全默认运行。
+- **校验不可跳过**：新增 `upload-file.require-checksum`（默认 `false`，向后兼容）；`verify-checksum +
+  require-checksum` 时缺失 `chunkMd5` 的分片被拒绝并删除。
+- **规范路径前缀校验**：`ResumableDownloadService.resolveFile` 将合并目录与目标文件双双
+  `getCanonicalFile()` 规范化，并要求文件落在合并目录之内；目录外一律视为不存在，防路径穿越。
+- **日志注入防护**：servlet 与 starter 的访问日志所有值经 `sanitizeLog()` 过滤，剥离换行 / 回车 / 制表符
+  等控制字符（CWE-117）。
+- **孤儿清理逐条隔离**：`StorageCleanupService.cleanupOrphans` 将每个 identifier 包在 `try-catch` 中，
+  单条脏数据不再中断整个清理；`hasTask()` 将非法 identifier 名视为「无任务」。
+- **流式有界分片写入**：`ChunkStorage.saveChunk(..., maxBytes)` 重载在超限时中途中断并清理，避免超限分片
+  先完整落盘再被检查。
 
 ## 部署约束
 

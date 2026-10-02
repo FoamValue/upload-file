@@ -23,7 +23,7 @@
 
 | 状态码 | 含义 |
 | --- | --- |
-| `400` | 参数非法、元数据不一致、MD5 不匹配，或超过 `max-file-size` / `chunk.max-size` |
+| `400` | 参数非法、元数据不一致、MD5 不匹配、缺失 `chunkMd5`（`require-checksum=true` 时），或超过 `max-file-size` / `chunk.max-size` |
 | `401` | 访问被拒（启用访问控制，令牌缺失/错误） |
 | `404` | 任务不存在 |
 | `409` | 合并状态冲突（向已合并/合并中的任务传分片、缺分片即合并、异步合并期间取消） |
@@ -70,7 +70,8 @@ multipart 字段：
 
 错误（`400`）：参数非法、MD5 不一致、分片元数据与首片不一致
 （`chunkTotal` / `chunkSize` / `fileSize` / `fileName`）、分片超过
-`max-chunk-size` / `chunk.max-size`，或整个文件超过 `max-file-size`。
+`max-chunk-size` / `chunk.max-size`、整个文件超过 `max-file-size`，或
+`require-checksum=true` 时缺失 `chunkMd5` 的分片。
 任务已合并或异步合并处于 PENDING/RUNNING/SUCCEEDED 时返回 `409`。
 接受该文件将超过 `quota.max-bytes` 时返回 `507`；启用访问控制且令牌缺失/错误时返回 `401`。
 

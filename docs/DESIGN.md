@@ -110,7 +110,10 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
 ## Extension Points
 
 - **Swap task storage**: implement `TaskStore` to use Redis, a database, or cloud storage.
-- **Swap chunk storage**: implement `ChunkStorage` to use OSS, HDFS, or S3.
+- **Swap chunk storage**: implement `ChunkStorage` to use OSS, HDFS, or S3. rc.9 adds a
+  byte-bounded streaming overload `saveChunk(identifier, chunkIndex, in, maxBytes)` (a `default`
+  method that delegates to the old 3-arg interface, so existing implementations keep working);
+  implementations may override it to enforce the limit mid-write instead of after the fact.
 - **Override default components**: under Spring Boot every core bean is
   `@ConditionalOnMissingBean`; define a bean with the same name to override it.
 
@@ -160,6 +163,34 @@ An unsatisfiable Range returns `416` with `Content-Range: bytes */<size>`.
   task and skipping later chunks; `deny` only denies; `all` restores the rc.7 per-decision log). The
   first-chunk detection uses a **bounded LRU identifier set** (cap 10000) held by the listener, so
   memory cannot grow without bound.
+
+## rc.9 Security Mechanisms
+
+The rc.9 security closure (see the [Changelog](../CHANGELOG.md)) hardens the seven issues found by the
+senior security review: quota bypass via declared values, unbounded defaults, skippable checksum, path
+traversal, log injection, cleanup interruption, and post-write chunk size check.
+
+- **Actual byte counting for quota/size limits**: `ResumableUploadService.uploadChunk` rejects a negative
+  `fileSize`; after saving, the chunk's on-disk length is re-checked against `maxChunkBytes` and an
+  oversized chunk is deleted and rejected — client-declared values are no longer trusted.
+- **Fail-fast for unbounded limits**: `max-chunk-size` defaults to 10 MB (was unlimited); an unset
+  `max-request-size` is derived from `max-chunk-size` / `max-file-size` (+1 MB slack); startup fails with
+  `IllegalStateException` when request, chunk and file limits are all unbounded, instead of running
+  insecure-by-default.
+- **Non-skippable checksum verification**: new `upload-file.require-checksum` (default `false`,
+  backward compatible); with `verify-checksum + require-checksum`, a chunk missing `chunkMd5` is
+  rejected and deleted.
+- **Canonical path prefix validation**: `ResumableDownloadService.resolveFile` canonicalises both the
+  merged dir and the resolved file and requires the file to stay under the merged dir; anything outside
+  is treated as absent, preventing path traversal.
+- **Log injection prevention**: servlet and starter access logs pass every value through `sanitizeLog()`,
+  which strips newline / carriage-return / tab and other control characters (CWE-117).
+- **Isolated orphan cleanup**: `StorageCleanupService.cleanupOrphans` isolates each identifier in a
+  `try-catch`, so a single bad entry no longer aborts the whole pass; `hasTask()` treats illegal
+  identifier names as "no task".
+- **Streaming byte-bounded chunk writes**: the `ChunkStorage.saveChunk(..., maxBytes)` overload aborts
+  mid-write and cleans up when the limit is exceeded, so oversized chunks are not fully written to disk
+  before being checked.
 
 ## Deployment Notes
 

@@ -225,10 +225,11 @@ while an async merge is pending/running.
 | `upload-file.metadata-dir` | *(empty)* | Task metadata dir; empty = in-memory (lost on restart) |
 | `upload-file.metadata-store` | `auto` | `auto` (file when `metadata-dir` set, otherwise memory) / `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | Verify per-chunk MD5 |
+| `upload-file.require-checksum` | `false` | With `verify-checksum=true`, reject a chunk whose `chunkMd5` is missing (rc.9; makes verification non-skippable) |
 | `upload-file.upload-url` | `/upload` | Upload servlet mapping |
 | `upload-file.download-url` | `/download` | Download servlet mapping |
-| `upload-file.max-chunk-size` | `-1` | Max bytes per chunk: enforced at the multipart layer and again by the service; `-1` = unlimited |
-| `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); `-1` = unlimited |
+| `upload-file.max-chunk-size` | `10 MB` | Max bytes per chunk (rc.9 default 10 MB, was unlimited): enforced at the multipart layer and again by the service; `-1` disables the chunk limit |
+| `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); unset (`-1`) is derived from `max-chunk-size`/`max-file-size` (+1 MB); startup fails when request/chunk/file are all unbounded (rc.7/rc.9) |
 | `upload-file.merge.fsync` | `true` | fsync the merge temp file before renaming |
 | `upload-file.merge.atomic` | `true` | Merge via temp file + atomic move |
 | `upload-file.cleanup.enabled` | `false` | Start the expired-task / orphan cleanup scheduler |

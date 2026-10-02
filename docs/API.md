@@ -25,7 +25,7 @@ Common error statuses (in addition to the endpoint-specific ones below). Since r
 
 | Status | Meaning |
 | --- | --- |
-| `400` | invalid parameters, metadata disagreement, MD5 mismatch, or exceeding `max-file-size` / `chunk.max-size` |
+| `400` | invalid parameters, metadata disagreement, MD5 mismatch, missing `chunkMd5` (with `require-checksum=true`), or exceeding `max-file-size` / `chunk.max-size` |
 | `401` | access denied (access control enabled, missing/wrong token) |
 | `404` | task not found |
 | `409` | merge-state conflict (uploading to an already-merged/in-flight task, merge with missing chunks, cancelling during an async merge) |
@@ -72,7 +72,8 @@ Notes: re-uploading the same chunk is skipped (idempotent); the current progress
 
 Errors (`400`): invalid parameters, MD5 mismatch, chunk metadata inconsistent with the first chunk
 (`chunkTotal` / `chunkSize` / `fileSize` / `fileName`), chunk exceeding `max-chunk-size` /
-`chunk.max-size`, or the whole file exceeding `max-file-size`.
+`chunk.max-size`, the whole file exceeding `max-file-size`, or — with
+`require-checksum=true` — a chunk whose `chunkMd5` is missing.
 `409` when the task is already merged or an async merge is pending/running/finished.
 `507` when accepting the file would exceed `quota.max-bytes`; `401` when access control is enabled
 and the token is missing/wrong.
