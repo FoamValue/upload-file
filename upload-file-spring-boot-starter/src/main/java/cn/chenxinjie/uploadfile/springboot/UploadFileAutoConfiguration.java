@@ -404,6 +404,13 @@ public class UploadFileAutoConfiguration {
     @ConditionalOnProperty(prefix = "upload-file", name = "async-merge.enabled", havingValue = "true")
     @ConditionalOnMissingBean(name = "uploadFileAsyncMergeExecutor")
     public ExecutorService uploadFileAsyncMergeExecutor(UploadFileProperties properties) {
+        int poolSize = properties.getAsyncMerge().getThreadPoolSize();
+        if (poolSize <= 0) {
+            // Fail fast with a clear message instead of letting Executors.newFixedThreadPool
+            // throw a raw IllegalArgumentException at startup (L3).
+            throw new IllegalStateException("upload-file: async-merge.thread-pool-size must be greater than 0, got "
+                    + poolSize);
+        }
         ThreadFactory factory = new ThreadFactory() {
             private final AtomicInteger seq = new AtomicInteger();
 

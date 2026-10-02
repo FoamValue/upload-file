@@ -128,7 +128,14 @@ public class JdbcTaskStore implements TaskStore {
                 conn.rollback();
                 throw e;
             } finally {
-                conn.setAutoCommit(originalAutoCommit);
+                // Restore the connection's auto-commit mode. The restoration is guarded so a
+                // failure here never masks the original SQLException from the transaction (L1);
+                // the connection is closed right after, so a failed restore is harmless.
+                try {
+                    conn.setAutoCommit(originalAutoCommit);
+                } catch (SQLException ignored) {
+                    // Original error takes precedence; the connection is closed anyway.
+                }
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Failed to save task metadata: " + task.getIdentifier(), e);

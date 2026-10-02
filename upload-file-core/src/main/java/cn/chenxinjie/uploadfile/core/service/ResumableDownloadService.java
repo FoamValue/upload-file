@@ -102,7 +102,10 @@ public class ResumableDownloadService {
         if (StringUtil.isNotBlank(task.getFinalPath())) {
             File file = new File(task.getFinalPath());
             // Guard against a tampered finalPath that escapes mergedFileDir (M2): only serve
-            // files that resolve inside the configured merged-file directory.
+            // files that resolve inside the configured merged-file directory. The canonical file
+            // (symlinks and ".." fully resolved) is what the caller receives, so the path that is
+            // actually opened is the one that passed the containment check — closing the TOCTOU
+            // window of re-deriving the path from the raw finalPath.
             File canonicalMergedDir;
             try {
                 canonicalMergedDir = mergedFileDir.getCanonicalFile();
@@ -110,11 +113,11 @@ public class ResumableDownloadService {
                 if (!canonicalFile.toPath().startsWith(canonicalMergedDir.toPath())) {
                     return Optional.empty();
                 }
+                if (canonicalFile.isFile()) {
+                    return Optional.of(canonicalFile);
+                }
             } catch (IOException ignored) {
                 return Optional.empty();
-            }
-            if (file.isFile()) {
-                return Optional.of(file);
             }
         }
         if (task.isMerged() && StringUtil.isNotBlank(task.getFileName())) {

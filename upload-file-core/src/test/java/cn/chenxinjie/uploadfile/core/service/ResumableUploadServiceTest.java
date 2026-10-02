@@ -152,6 +152,25 @@ public class ResumableUploadServiceTest {
     }
 
     @Test
+    public void requireChecksumRejectsChunkMissingMd5() throws Exception {
+        // verify-checksum + require-checksum: a chunk without a checksum is rejected before any
+        // progress is recorded, and the chunk is cleaned up so a later valid upload succeeds.
+        service.setRequireChecksum(true);
+        assertThrows(UploadValidationException.class,
+                () -> service.uploadChunk(request("reqchk", 0, 1),
+                        new ByteArrayInputStream("data".getBytes(StandardCharsets.UTF_8))));
+        assertFalse(service.isChunkUploaded("reqchk", 0));
+        assertEquals(0, service.getProgress("reqchk").getUploadedCount());
+
+        // Supplying the required checksum makes the same upload succeed.
+        ChunkUploadRequest good = request("reqchk", 0, 1);
+        good.setChunkMd5(ChecksumUtil.md5("data".getBytes(StandardCharsets.UTF_8)));
+        UploadProgress p = service.uploadChunk(good, new ByteArrayInputStream("data".getBytes(StandardCharsets.UTF_8)));
+        assertEquals(1, p.getUploadedCount());
+        assertTrue(service.isChunkUploaded("reqchk", 0));
+    }
+
+    @Test
     public void pathTraversalFileNameRejected() {
         ChunkUploadRequest req = request("f8", 0, 1);
         req.setFileName("../evil.txt");
@@ -177,6 +196,30 @@ public class ResumableUploadServiceTest {
         service.getTaskStore().save(task);
 
         assertThrows(IllegalArgumentException.class, () -> service.merge("f10"));
+    }
+
+    @Test
+    public void chunkTotalAboveCapRejectedOnUpload() {
+        // merge()/writeMergedFile() do O(chunkTotal) work per chunk, so an attacker-declared
+        // chunkTotal above the cap must be rejected up front instead of pinning a request thread
+        // in a long CPU loop (CPU DoS guard).
+        ChunkUploadRequest req = request("h2cap", 0, ResumableUploadService.MAX_CHUNK_TOTAL + 1);
+        UploadValidationException ex = assertThrows(UploadValidationException.class,
+                () -> service.uploadChunk(req, new ByteArrayInputStream("x".getBytes())));
+        assertTrue(ex.getMessage().contains("chunkTotal"));
+        assertFalse(service.isChunkUploaded("h2cap", 0));
+    }
+
+    @Test
+    public void mergeRejectsTaskWithChunkTotalAboveCap() throws Exception {
+        // Defense in depth: a task whose recorded chunkTotal exceeds the cap (e.g. injected
+        // directly into the task store, bypassing uploadChunk) must be rejected by merge() before
+        // any O(chunkTotal) existence-check work is performed.
+        service.uploadChunk(request("h2merge", 0, 1), new ByteArrayInputStream("x".getBytes()));
+        UploadTask task = service.getTaskStore().get("h2merge").get();
+        task.setChunkTotal(ResumableUploadService.MAX_CHUNK_TOTAL + 1);
+        service.getTaskStore().save(task);
+        assertThrows(UploadValidationException.class, () -> service.merge("h2merge"));
     }
 
     @Test

@@ -46,6 +46,11 @@ import java.util.stream.Stream;
  *
  * <p>When a {@link CleanupLock} is supplied, each scheduled pass first acquires the lease and is skipped
  * when another instance already holds it, so multi-instance deployments do not run duplicate cleanup.</p>
+ *
+ * <p>Merged files are only reclaimed by the opt-in orphan-data GC (L7): a complete task is kept intact
+ * until its record is gone, and the merged file of a recordless directory is removed only when
+ * {@code orphanEnabled} is on. Operators wanting automatic reclamation of old merged files must enable
+ * it explicitly.</p>
  */
 public class StorageCleanupService {
 

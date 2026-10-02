@@ -48,7 +48,9 @@ public class UploadServletTest {
 
     @Before
     public void setUp() {
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         uploadService = context.getUploadService();
         servlet = new UploadServlet();
         servlet.setUploadService(uploadService);
@@ -167,6 +169,7 @@ public class UploadServletTest {
     public void mergeAsyncReachesSucceeded() throws Exception {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.asyncMergeEnabled = true;
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         UploadServlet asyncServlet = new UploadServlet();
         asyncServlet.setUploadService(context.getUploadService());
@@ -251,6 +254,7 @@ public class UploadServletTest {
         MockServletConfig config = new MockServletConfig(servletContext);
         config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath());
         config.addInitParameter("metadata-dir", folder.getRoot().getAbsolutePath() + "/meta");
+        config.addInitParameter("chunk.max-size", "1024");
         UploadServlet configured = new UploadServlet();
         configured.init(config);
 
@@ -728,6 +732,7 @@ public class UploadServletTest {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;
         config.securityToken = token;
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         UploadServlet servlet = new UploadServlet();
         servlet.setUploadService(context.getUploadService());

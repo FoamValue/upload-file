@@ -31,10 +31,25 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * File-based metadata store. Each task is stored as an {@code identifier.json} file,
  * written via "temp file + atomic rename".
+ *
+ * <p>The in-memory cache is bounded (see {@link #MAX_CACHE_ENTRIES}): when the cap is reached the
+ * least-recently-stored entries are evicted, so a long-running process with many uploads never
+ * leaks memory (M3). Evicted tasks are transparently re-read from disk on demand.</p>
+ *
+ * <p>Single-instance deployments only (M4): because reads are served from the in-process cache, a
+ * second process sharing the same metadata directory can serve stale metadata until it performs
+ * its own {@code save}/{@code remove}. Use {@code RedisTaskStore} or {@code JdbcTaskStore} when
+ * multiple instances must share one task store.</p>
  */
 public class FileTaskStore implements TaskStore {
 
     private static final String SUFFIX = ".json";
+
+    /**
+     * Upper bound of the in-memory task cache. Tasks beyond the cap are evicted in batches and
+     * re-read from disk on demand; the cap keeps memory usage flat regardless of upload volume.
+     */
+    static final int MAX_CACHE_ENTRIES = 10_000;
 
     private final Path rootDir;
     private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
@@ -55,6 +70,26 @@ public class FileTaskStore implements TaskStore {
 
     private Path taskPath(String identifier) {
         return rootDir.resolve(identifier + SUFFIX);
+    }
+
+    /**
+     * Stores a task in the in-memory cache, evicting older entries when the cap is reached so the
+     * cache stays bounded (M3). Eviction removes up to half the entries; any evicted task is
+     * re-read from disk on its next access.
+     */
+    private void cachePut(String identifier, UploadTask task) {
+        if (cache.size() >= MAX_CACHE_ENTRIES && !cache.containsKey(identifier)) {
+            int toRemove = MAX_CACHE_ENTRIES / 2;
+            int removed = 0;
+            for (String key : cache.keySet()) {
+                if (removed >= toRemove) {
+                    break;
+                }
+                cache.remove(key);
+                removed++;
+            }
+        }
+        cache.put(identifier, task);
     }
 
     @Override
@@ -78,7 +113,7 @@ public class FileTaskStore implements TaskStore {
                 return Optional.empty();
             }
             task.normalize();
-            cache.put(identifier, task);
+            cachePut(identifier, task);
             return Optional.of(task);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to read task metadata: " + path, e);
@@ -103,7 +138,7 @@ public class FileTaskStore implements TaskStore {
                 Files.move(tmp, path, StandardCopyOption.REPLACE_EXISTING);
             }
             // Keep the in-memory cache in sync so later reads hit the cache instead of the disk.
-            cache.put(task.getIdentifier(), task);
+            cachePut(task.getIdentifier(), task);
         } catch (IOException e) {
             throw new UncheckedIOException("Failed to save task metadata: " + path, e);
         } finally {

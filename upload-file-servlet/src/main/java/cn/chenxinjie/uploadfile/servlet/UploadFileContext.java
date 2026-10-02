@@ -70,6 +70,11 @@ import java.util.logging.Logger;
  * </ul>
  *
  * <p>All cleanup/async threads are daemon threads, so they terminate with the container.</p>
+ *
+ * <p>Fail-fast: at least one of {@code chunk.max-size}, {@code max-file-size} or
+ * {@code quota.max-bytes} must be configured, otherwise {@link #build} throws an
+ * {@link IllegalStateException} — a completely unbounded upload endpoint is a DoS surface and is
+ * never started silently.</p>
  */
 public final class UploadFileContext {
 
@@ -270,6 +275,18 @@ public final class UploadFileContext {
         ChunkStorage chunkStorage = new LocalFileChunkStorage(Paths.get(storageDir, "chunks"));
         File mergedDir = Paths.get(storageDir, "files").toFile();
 
+        // Fail fast on a completely unbounded upload: with all three limits unset (0 = unlimited)
+        // there is no guard against a DoS/disk-exhaustion attack, so refuse to start instead of
+        // silently exposing an open upload endpoint. At least one of chunk.max-size, max-file-size
+        // or quota.max-bytes must be configured; the unset ones keep their documented 0 = unlimited
+        // semantics.
+        if (config.maxChunkSize <= 0 && config.maxFileSize <= 0 && config.quotaMaxBytes <= 0) {
+            throw new IllegalStateException(
+                    "upload-file: chunk.max-size, max-file-size and quota.max-bytes are all unset; "
+                            + "refusing to start with an unbounded upload (DoS surface). "
+                            + "Set at least one of chunk.max-size, max-file-size, or quota.max-bytes.");
+        }
+
         AccessControl accessControl;
         if (config.securityEnabled) {
             // Fail fast: enabling security without a token must not silently open the endpoints.
@@ -300,6 +317,12 @@ public final class UploadFileContext {
 
         ExecutorService asyncExecutor = null;
         if (config.asyncMergeEnabled) {
+            if (config.asyncMergeThreadPoolSize <= 0) {
+                // Fail fast with a clear message instead of letting Executors.newFixedThreadPool
+                // throw a raw IllegalArgumentException at runtime (L3).
+                throw new IllegalStateException("upload-file: async-merge.thread-pool-size must be greater than 0, got "
+                        + config.asyncMergeThreadPoolSize);
+            }
             ThreadFactory factory = new ThreadFactory() {
                 private final AtomicInteger seq = new AtomicInteger();
 

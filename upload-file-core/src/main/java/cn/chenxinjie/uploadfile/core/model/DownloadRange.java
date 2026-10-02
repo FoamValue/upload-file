@@ -17,6 +17,10 @@ import java.util.Optional;
  *   <li>{@code bytes=start-}: from {@code start} to the end of the file</li>
  *   <li>{@code bytes=-suffix}: the last {@code suffix} bytes</li>
  * </ul>
+ *
+ * <p>A multi-segment header ({@code bytes=a-b,c-d,...}) is served as its first segment only;
+ * {@code multipart/byteranges} responses are intentionally not supported (L4), which matches the
+ * single-range resumable-download use case.</p>
  */
 public class DownloadRange {
 

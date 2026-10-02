@@ -119,6 +119,23 @@ public class ResumableDownloadServiceTest {
     }
 
     @Test
+    public void resolveFileRejectsFinalPathEscapingMergedDir() throws Exception {
+        // A tampered finalPath that resolves outside mergedFileDir (even via "..") must be refused.
+        Files.createDirectories(mergedDir.toPath());
+        File outside = new File(folder.getRoot(), "outside.bin");
+        Files.write(outside.toPath(), "secret".getBytes(StandardCharsets.UTF_8));
+        store.save(mergedTask("esc", "demo.txt", outside.getAbsolutePath()));
+        assertFalse(service.resolveFile("esc").isPresent());
+
+        // ".." traversal through a finalPath is normalized by getCanonicalFile and refused too.
+        File inside = new File(mergedDir, "ok.txt");
+        Files.write(inside.toPath(), "data".getBytes(StandardCharsets.UTF_8));
+        store.save(mergedTask("tra", "demo.txt",
+                new File(mergedDir, "sub" + File.separator + ".." + File.separator + "ok.txt").getAbsolutePath()));
+        assertTrue(service.resolveFile("tra").isPresent());
+    }
+
+    @Test
     public void writeRangeShortFileThrowsWhenRangeLongerThanRemaining() throws Exception {
         File file = new File(mergedDir, "f7");
         Files.createDirectories(file.toPath());

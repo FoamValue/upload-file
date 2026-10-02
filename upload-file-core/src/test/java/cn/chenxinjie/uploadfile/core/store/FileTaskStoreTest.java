@@ -232,4 +232,20 @@ public class FileTaskStoreTest {
         Files.write(root.toPath(), new byte[1]);
         assertThrows(UncheckedIOException.class, store::list);
     }
+
+    @Test
+    public void cacheEvictsWhenCapIsReachedAndReadThroughStaysCorrect() {
+        // Insert more tasks than the cache cap so the bounded-cache eviction (M3) kicks in; every
+        // evicted task must still be readable from disk on demand.
+        FileTaskStore store = new FileTaskStore(folder.getRoot().toPath());
+        int count = FileTaskStore.MAX_CACHE_ENTRIES + 100;
+        for (int i = 0; i < count; i++) {
+            store.save(sampleTask("ev" + i));
+        }
+        for (int i = 0; i < count; i++) {
+            assertTrue("task ev" + i + " must remain readable after cache eviction",
+                    store.get("ev" + i).isPresent());
+        }
+        assertEquals(count, store.list().size());
+    }
 }

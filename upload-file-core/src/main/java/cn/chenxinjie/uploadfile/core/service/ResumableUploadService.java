@@ -65,6 +65,15 @@ public class ResumableUploadService {
 
     public static final int DEFAULT_CHUNK_SIZE = 5 * 1024 * 1024;
 
+    /**
+     * Maximum number of chunks a single upload may declare. {@code merge()} and
+     * {@code writeMergedFile()} do O(chunkTotal) work per chunk (existence checks and copies), so
+     * without an upper bound an attacker-declared {@code chunkTotal} of e.g. 2^31-1 would pin a
+     * request thread in a long CPU loop (CPU DoS). At the default 5 MB chunk size this cap allows
+     * files up to roughly 488 GB.
+     */
+    public static final int MAX_CHUNK_TOTAL = 100_000;
+
     private final TaskStore taskStore;
     private final ChunkStorage chunkStorage;
     private final File mergedFileDir;
@@ -257,6 +266,12 @@ public class ResumableUploadService {
         int chunkTotal = request.getChunkTotal();
         if (chunkTotal <= 0) {
             throw new UploadValidationException("chunkTotal must be greater than 0");
+        }
+        if (chunkTotal > MAX_CHUNK_TOTAL) {
+            // Guard merge()/writeMergedFile() (O(chunkTotal) work) against a declared chunk
+            // count that would pin the request thread in a long CPU loop.
+            throw new UploadValidationException("chunkTotal exceeds the maximum allowed value of "
+                    + MAX_CHUNK_TOTAL);
         }
         if (chunkIndex < 0 || chunkIndex >= chunkTotal) {
             throw new UploadValidationException("chunkIndex out of range: " + chunkIndex);
@@ -514,6 +529,13 @@ public class ResumableUploadService {
             }
             if (maxTotalBytes > 0) {
                 checkQuota(identifier, task.getFileSize());
+            }
+            if (task.getChunkTotal() > MAX_CHUNK_TOTAL) {
+                // Defense in depth: merge()/writeMergedFile() do O(chunkTotal) work per chunk, so a
+                // task whose recorded chunk count exceeds the cap must be rejected even when it was
+                // not created through uploadChunk (e.g. metadata written directly into the store).
+                throw new UploadValidationException("chunkTotal exceeds the maximum allowed value of "
+                        + MAX_CHUNK_TOTAL);
             }
             int missing = 0;
             for (int i = 0; i < task.getChunkTotal(); i++) {

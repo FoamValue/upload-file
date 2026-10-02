@@ -20,6 +20,11 @@ import java.util.UUID;
  * {@link CleanupLock} backed by a Redis {@code SET NX EX} key, so multiple instances share a
  * single lease. The lease auto-expires after {@code ttlSeconds} so a crashed holder never blocks
  * cleanup forever; {@code release()} removes the key only when this instance still owns it.
+ *
+ * <p>There is no lease-renewal watchdog (M1): a cleanup pass that runs longer than
+ * {@code ttlSeconds} loses its lease, and another instance may then start a duplicate pass.
+ * Duplicate passes are harmless by design (each record operation is isolated and re-checked), but
+ * operators running long cleanup cycles should size {@code ttlSeconds} above the longest pass.</p>
  */
 public class RedisCleanupLock implements CleanupLock {
 

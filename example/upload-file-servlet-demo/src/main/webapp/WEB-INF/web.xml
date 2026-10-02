@@ -26,6 +26,14 @@
             <param-name>metadata-dir</param-name>
             <param-value>./data/upload-servlet/meta</param-value>
         </init-param>
+        <!-- The shared UploadFileContext fails fast unless at least one of chunk.max-size /
+             max-file-size / quota.max-bytes is set (a fully unbounded upload endpoint is a DoS
+             surface). The container-level <multipart-config> limit below is 100 MB, so the
+             matching chunk.max-size keeps the per-chunk limit consistent with it. -->
+        <init-param>
+            <param-name>chunk.max-size</param-name>
+            <param-value>104857600</param-value>
+        </init-param>
         <!-- rc.8 access-decision logging (the context is shared, so it is configured once here):
              observability.access-log enables the structured log; observability.access-log-scope
              (task default | deny | all) controls its volume. -->
@@ -61,6 +69,14 @@
         <init-param>
             <param-name>metadata-dir</param-name>
             <param-value>./data/upload-servlet/meta</param-value>
+        </init-param>
+        <!-- The shared UploadFileContext fails fast unless at least one of chunk.max-size /
+             max-file-size / quota.max-bytes is set (a fully unbounded upload endpoint is a DoS
+             surface). The container-level <multipart-config> limit below is 100 MB, so the
+             matching chunk.max-size keeps the per-chunk limit consistent with it. -->
+        <init-param>
+            <param-name>chunk.max-size</param-name>
+            <param-value>104857600</param-value>
         </init-param>
         <load-on-startup>1</load-on-startup>
     </servlet>

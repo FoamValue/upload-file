@@ -38,6 +38,7 @@ public class UploadFileContextTest {
         MockServletConfig config = new MockServletConfig(servletContext);
         config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath());
         config.addInitParameter("metadata-dir", folder.getRoot().getAbsolutePath() + "/meta");
+        config.addInitParameter("chunk.max-size", "1024");
 
         UploadFileContext first = UploadFileContext.getOrCreate(servletContext, config);
         UploadFileContext second = UploadFileContext.getOrCreate(servletContext, config);
@@ -79,6 +80,7 @@ public class UploadFileContextTest {
     public void buildWithFileMetadataStore() {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.metadataStore = "file";
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(
                 folder.getRoot().getAbsolutePath(), folder.getRoot().getAbsolutePath() + "/meta", config);
         assertTrue(context.getTaskStore() instanceof FileTaskStore);
@@ -87,10 +89,14 @@ public class UploadFileContextTest {
     @Test
     public void buildAutoStoreWithAndWithoutMetadataDir() {
         String root = folder.getRoot().getAbsolutePath();
-        UploadFileContext withDir = UploadFileContext.build(root, root + "/meta", new UploadFileContext.Config());
+        UploadFileContext.Config withDirConfig = new UploadFileContext.Config();
+        withDirConfig.maxChunkSize = 1024;
+        UploadFileContext withDir = UploadFileContext.build(root, root + "/meta", withDirConfig);
         assertTrue(withDir.getTaskStore() instanceof FileTaskStore);
 
-        UploadFileContext withoutDir = UploadFileContext.build(root, null, new UploadFileContext.Config());
+        UploadFileContext.Config withoutDirConfig = new UploadFileContext.Config();
+        withoutDirConfig.maxChunkSize = 1024;
+        UploadFileContext withoutDir = UploadFileContext.build(root, null, withoutDirConfig);
         assertTrue(withoutDir.getTaskStore() instanceof MemoryTaskStore);
     }
 
@@ -98,6 +104,7 @@ public class UploadFileContextTest {
     public void nullMetadataStoreFallsBackToAuto() {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.metadataStore = null;
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         assertTrue(context.getTaskStore() instanceof MemoryTaskStore);
     }
@@ -121,7 +128,9 @@ public class UploadFileContextTest {
 
     @Test
     public void gettersExposeWiredComponents() {
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         assertNotNull(context.getTaskStore());
         assertNotNull(context.getUploadService());
         assertNotNull(context.getDownloadService());
@@ -130,7 +139,9 @@ public class UploadFileContextTest {
 
     @Test
     public void taskStoreExposedAsTaskStoreType() {
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         TaskStore store = context.getTaskStore();
         assertTrue(store instanceof MemoryTaskStore);
     }
@@ -193,6 +204,7 @@ public class UploadFileContextTest {
         try {
             UploadFileContext.Config config = new UploadFileContext.Config();
             config.observabilityAccessLog = true;
+            config.maxChunkSize = 1024;
             UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
             context.getUploadService().getProgress("audit1");
             assertTrue(records.stream().anyMatch(r -> r.getMessage().contains("upload-file access")));
@@ -225,6 +237,7 @@ public class UploadFileContextTest {
             config.securityEnabled = true;
             config.securityToken = "secret";
             config.observabilityAccessLog = true;
+            config.maxChunkSize = 1024;
             UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
 
             assertThrows(AccessDeniedException.class,
@@ -240,14 +253,17 @@ public class UploadFileContextTest {
     public void logStatsDisabledStillBuildsCleanupService() {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.observabilityLogStats = false;
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         assertNotNull(context.getCleanupService());
     }
 
     @Test
     public void blankMetadataDirFallsBackToMemoryStore() {
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(
-                folder.getRoot().getAbsolutePath(), "   ", new UploadFileContext.Config());
+                folder.getRoot().getAbsolutePath(), "   ", config);
         assertTrue(context.getTaskStore() instanceof MemoryTaskStore);
     }
 
@@ -256,6 +272,7 @@ public class UploadFileContextTest {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;
         config.securityToken = null;
+        config.maxChunkSize = 1024; // keep the unbounded-upload fail-fast from masking this check
         assertThrows(IllegalArgumentException.class,
                 () -> UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config));
     }
@@ -273,11 +290,14 @@ public class UploadFileContextTest {
 
     @Test
     public void accessTokenHeaderDefaultsAndOverrides() {
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config plain = new UploadFileContext.Config();
+        plain.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, plain);
         assertEquals("X-Access-Token", context.getAccessTokenHeader());
 
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityHeaderName = "X-Custom";
+        config.maxChunkSize = 1024;
         UploadFileContext custom = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         assertEquals("X-Custom", custom.getAccessTokenHeader());
     }
@@ -286,6 +306,7 @@ public class UploadFileContextTest {
     public void securityEnabledWithoutTokenFailsFast() {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;
+        config.maxChunkSize = 1024; // keep the unbounded-upload fail-fast from masking this check
         assertThrows(IllegalArgumentException.class,
                 () -> UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config));
     }
@@ -295,6 +316,7 @@ public class UploadFileContextTest {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.cleanupEnabled = true;
         config.cleanupIntervalMillis = 1000;
+        config.maxChunkSize = 1024;
         CleanupLock lock = new CleanupLock() {
             @Override
             public boolean tryAcquire() {
@@ -308,5 +330,23 @@ public class UploadFileContextTest {
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config, lock);
         assertNotNull(context.getCleanupService());
         context.getCleanupService().stop();
+    }
+
+    @Test
+    public void buildFailsFastWhenAllLimitsUnset() {
+        // A completely unbounded upload (chunk.max-size / max-file-size / quota.max-bytes all 0)
+        // is a DoS surface and must refuse to start, mirroring the starter's fail-fast.
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        assertThrows(IllegalStateException.class,
+                () -> UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config));
+
+        // Any one configured limit is enough to start.
+        UploadFileContext.Config quotaOnly = new UploadFileContext.Config();
+        quotaOnly.quotaMaxBytes = 1024;
+        assertNotNull(UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, quotaOnly));
+
+        UploadFileContext.Config fileOnly = new UploadFileContext.Config();
+        fileOnly.maxFileSize = 1024;
+        assertNotNull(UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, fileOnly));
     }
 }

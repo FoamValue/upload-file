@@ -52,7 +52,9 @@ public class DownloadServletTest {
     @Before
     public void setUp() throws Exception {
         // Reuse the shared context wiring: upload one chunk and merge it to produce the file.
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         ResumableUploadService uploadService = context.getUploadService();
         ChunkUploadRequest request = new ChunkUploadRequest();
         request.setIdentifier(IDENTIFIER);
@@ -127,6 +129,21 @@ public class DownloadServletTest {
     }
 
     @Test
+    public void multiRangeHeaderServesOnlyFirstSegment() throws Exception {
+        // RFC 7233 allows "bytes=0-4,8-11"; this implementation serves only the first segment
+        // (single-range 206), which is the documented behavior for resumable downloads (L4).
+        MockHttpServletRequest request = downloadRequest();
+        request.addHeader("Range", "bytes=0-4,8-11");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        servlet.doGet(request, response);
+
+        assertEquals(206, response.getStatus());
+        assertEquals("bytes 0-4/" + CONTENT.length, response.getHeader("Content-Range"));
+        assertArrayEquals("hello".getBytes(StandardCharsets.UTF_8), response.getContentAsByteArray());
+    }
+
+    @Test
     public void unsatisfiableRangeReturns416() throws Exception {
         MockHttpServletRequest request = downloadRequest();
         request.addHeader("Range", "bytes=999999-");
@@ -193,6 +210,7 @@ public class DownloadServletTest {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;
         config.securityToken = "secret";
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
 
         ResumableUploadService uploadService = context.getUploadService();
@@ -322,6 +340,7 @@ public class DownloadServletTest {
         MockServletConfig config = new MockServletConfig(servletContext);
         config.addInitParameter("storage-dir", folder.getRoot().getAbsolutePath());
         config.addInitParameter("metadata-dir", folder.getRoot().getAbsolutePath() + "/meta");
+        config.addInitParameter("chunk.max-size", "1024");
 
         DownloadServlet configured = new DownloadServlet();
         configured.init(config);
@@ -351,6 +370,7 @@ public class DownloadServletTest {
         UploadFileContext.Config config = new UploadFileContext.Config();
         config.securityEnabled = true;
         config.securityToken = token;
+        config.maxChunkSize = 1024;
         UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
 
         ResumableUploadService uploadService = context.getUploadService();
@@ -381,7 +401,9 @@ public class DownloadServletTest {
             raf.setLength(size); // sparse file, no real disk usage
         }
 
-        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null);
+        UploadFileContext.Config config = new UploadFileContext.Config();
+        config.maxChunkSize = 1024;
+        UploadFileContext context = UploadFileContext.build(folder.getRoot().getAbsolutePath(), null, config);
         UploadTask task = new UploadTask();
         task.setIdentifier("big");
         task.setFileName("big.bin");

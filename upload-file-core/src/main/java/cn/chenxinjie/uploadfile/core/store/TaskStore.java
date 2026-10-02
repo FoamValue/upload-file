@@ -26,5 +26,12 @@ public interface TaskStore {
 
     boolean remove(String identifier);
 
+    /**
+     * Returns all tasks currently stored.
+     *
+     * <p>The collection is fully materialized in memory (L2): the built-in stores read every record
+     * before returning, so callers on very large stores should page the results instead of relying
+     * on this method unbounded.</p>
+     */
     Collection<UploadTask> list();
 }

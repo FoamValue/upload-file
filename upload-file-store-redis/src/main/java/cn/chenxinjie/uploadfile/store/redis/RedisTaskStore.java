@@ -46,6 +46,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * {@code MGET}) so a very large index cannot monopolise the single-threaded Redis for one call; the
  * identifier snapshot is taken first, keeping one pass internally consistent.</p>
  *
+ * <p>Clock sensitivity (L6): index scores are stamped with the <em>client's</em> wall clock and the
+ * TTL pruning compares them with the local clock, so instances with skewed clocks can prune
+ * too aggressively (entries younger than the TTL dropped) or leave expired entries listed until a
+ * save refreshes them. Keep the clocks of all instances sharing a store synchronized (e.g. NTP).</p>
+ *
  * <p>The core does not depend on third-party frameworks; the Jedis client dependency stays in this module.</p>
  */
 public class RedisTaskStore implements TaskStore {
