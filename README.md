@@ -12,30 +12,6 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 > ✅ Status: **Stable** `1.0.0` (GA) — the API is frozen. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
 > [Changelog](CHANGELOG.md).
 
-> ⚠️ **rc.8 upgrade notice:** (1) `observability.access-log` output now defaults to `task` level (deny + task-level
-> events; only the first chunk's `upload` allow per task is logged, later chunks are skipped — one line per chunk
-> becomes task-level logs); set
-> `observability.access-log-scope=all` for the rc.7 per-decision log. (2) `quota.store=redis` now **reconciles at
-> startup** and corrects counter drift — no extra configuration. (3) the distributed identifier lock now renews its
-> lease while held, so a long merge no longer loses mutual exclusion when `lock.ttl` expires
-> (`lock.renew-interval` overrides the cadence; default `ttl/3`).
-
-> ⚠️ **1.0.0 upgrade notice (from rc.8; breaking default):** the starter's `upload-file.max-chunk-size` now defaults to
-> **10 MB** (was unlimited) and startup **fails** if request / chunk / file limits are all unbounded — set any one
-> limit to restore startup. With `upload-file.require-checksum=true`, a chunk missing `chunkMd5` is rejected instead
-> of silently skipping verification. See the [Changelog](CHANGELOG.md).
-
-> ⚠️ **rc.7 upgrade notice (breaking default):** with `multipart.strategy=component` (the default), an unset
-> `upload-file.max-request-size` is now **derived** (bounded) from `max-chunk-size`/`max-file-size` instead of
-> leaving the container limit unbounded; set it explicitly to keep full control. `metadata-store=redis` upgrades
-> transparently — the task index is lazily migrated from a `SET` to a `ZSET`. See the [Changelog](CHANGELOG.md).
-
-> ⚠️ **rc.6 upgrade notice (breaking defaults):** the `/download` servlet is no longer registered by default
-> (minimal exposure). If you rely on the official download endpoint, set
-> `upload-file.endpoint.download-enabled=true`. Also, `GET /upload` with a missing/unknown `action` now returns
-> `400` (no longer treated as progress), and server-side failures are no longer collapsed to `400`.
-> See the [Changelog](CHANGELOG.md).
-
 > 🇨🇳 [简体中文](README.zh-CN.md)
 
 ## Features
@@ -58,22 +34,22 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 - **Multi-instance coordination** – optional Redis lease lock so only one instance runs the cleanup scheduler
 - **Explicit task read & cancel** – `getTask(identifier)` as the stable read for the integration "confirm" phase, and `cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` that reclaim a task's chunks and merged artifact instead of waiting for the cleanup scheduler
 - **Stable error semantics** – core failures carry an `UploadErrorCode` with a stable HTTP status (`400`/`401`/`404`/`409`/`507`) that servlet and Spring integrations map automatically
-- **Controllable endpoints (rc.6)** – `upload-file.endpoint.*` toggles the upload/download servlets; `endpoint.enabled=false` is a beans-only mode; `/download` is off by default (minimal exposure), and both the servlet instances and their registrations can be overridden by host beans
-- **Distinguishable access decisions (rc.6)** – `AccessControl.decide(...)` returns an `AccessDecision` so a denial can carry `401` (unauthenticated) or `403` (forbidden); the legacy `check(...)` is kept as a default bridge, so existing implementations need no change
-- **Audit hook & access log (rc.6)** – an optional `AccessControlListener` fires on every entry point (allow/deny + decision time), shared by the MVC and Servlet paths; `observability.access-log=true` emits a structured access line
-- **Symbolic error codes & uniform error body (rc.6)** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
-- **Quota/lock correctness closure (rc.8)** – `quota.store=redis` reconciles at startup (`QuotaStore.reconcile`) and cleanup reclaims the quota of a merged-but-unconfirmed task; the distributed identifier lock renews its lease while held, so a long merge cannot lose mutual exclusion
-- **Audit context (rc.8)** – `AccessContext` / `AccessContextHolder` propagate method/URI/IP/UA, and `AccessControlListener` gains a 6-arg `default` overload (existing 5-arg implementations need no change)
-- **Access-log noise reduction (rc.8)** – `observability.access-log-scope=task|deny|all`, defaulting to `task` (only the first chunk allow per task is logged; later chunks are skipped)
-- **BOM (rc.8)** – `upload-file-bom` aligns all 7 library module versions; a host imports it and declares only `artifactId`
-- **`TrustedUploadService` auto-wiring (rc.8)** – the starter exposes the trusted read-only facade by default; a host can override it or disable it with `trusted-upload-service.enabled=false`
-- **Multipart strategy (rc.6)** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits
-- **Multipart safe default (rc.7)** – under `component`, an unset request limit is derived (bounded) from `max-chunk-size`/`max-file-size` instead of leaving the container unbounded
-- **Distributed serialization (rc.7)** – `upload-file.lock.identifier-lock=redis` uses a distributed `IdentifierLockProvider` so uploads/merges of the same identifier are serialized across instances
-- **Atomic quota (rc.7)** – `upload-file.quota.store=redis` uses an atomic `QuotaStore` counter (with `reconcile`) so concurrent uploads cannot overshoot `quota.max-bytes`
-- **Host error renderer (rc.7)** – the starter consumes a host `UploadErrorRenderer` bean (e.g. a business `ApiResponse` envelope); a bean wins over `legacy`/`standard`
-- **Trusted read API (rc.7)** – `TrustedUploadService` isolates the un-gated reads; the deprecated bare reads point at the gated overloads, so un-gated use is compile-time visible
-- **`AbstractAccessControl` (rc.7)** – extending it forces `decide()` at compile time; `AccessControl.ofDecide/ofCheck` restore the functional style
+- **Controllable endpoints** – `upload-file.endpoint.*` toggles the upload/download servlets; `endpoint.enabled=false` is a beans-only mode; `/download` is off by default (minimal exposure), and both the servlet instances and their registrations can be overridden by host beans
+- **Distinguishable access decisions** – `AccessControl.decide(...)` returns an `AccessDecision` so a denial can carry `401` (unauthenticated) or `403` (forbidden); the legacy `check(...)` is kept as a default bridge, so existing implementations need no change
+- **Audit hook & access log** – an optional `AccessControlListener` fires on every entry point (allow/deny + decision time), shared by the MVC and Servlet paths; `observability.access-log=true` emits a structured access line
+- **Symbolic error codes & uniform error body** – every typed failure carries a stable code from `UploadErrorCodes`; `http.error-body=standard` emits a uniform `UploadHttpError`, while the default `legacy` keeps the old per-endpoint models
+- **Quota/lock correctness closure** – `quota.store=redis` reconciles at startup (`QuotaStore.reconcile`) and cleanup reclaims the quota of a merged-but-unconfirmed task; the distributed identifier lock renews its lease while held, so a long merge cannot lose mutual exclusion
+- **Audit context** – `AccessContext` / `AccessContextHolder` propagate method/URI/IP/UA, and `AccessControlListener` gains a 6-arg `default` overload (existing 5-arg implementations need no change)
+- **Access-log noise reduction** – `observability.access-log-scope=task|deny|all`, defaulting to `task` (only the first chunk allow per task is logged; later chunks are skipped)
+- **BOM** – `upload-file-bom` aligns all 7 library module versions; a host imports it and declares only `artifactId`
+- **`TrustedUploadService` auto-wiring** – the starter exposes the trusted read-only facade by default; a host can override it or disable it with `trusted-upload-service.enabled=false`
+- **Multipart strategy** – `multipart.strategy=component|spring|unlimited` to choose component-managed limits, follow `spring.servlet.multipart.*`, or disable container limits
+- **Multipart safe default** – under `component`, an unset request limit is derived (bounded) from `max-chunk-size`/`max-file-size` instead of leaving the container unbounded
+- **Distributed serialization** – `upload-file.lock.identifier-lock=redis` uses a distributed `IdentifierLockProvider` so uploads/merges of the same identifier are serialized across instances
+- **Atomic quota** – `upload-file.quota.store=redis` uses an atomic `QuotaStore` counter (with `reconcile`) so concurrent uploads cannot overshoot `quota.max-bytes`
+- **Host error renderer** – the starter consumes a host `UploadErrorRenderer` bean (e.g. a business `ApiResponse` envelope); a bean wins over `legacy`/`standard`
+- **Trusted read API** – `TrustedUploadService` isolates the un-gated reads; the deprecated bare reads point at the gated overloads, so un-gated use is compile-time visible
+- **`AbstractAccessControl`** – extending it forces `decide()` at compile time; `AccessControl.ofDecide/ofCheck` restore the functional style
 
 ## Modules
 
@@ -92,7 +68,7 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 ## Quick Start
 
-### Option 0: BOM for aligned versions (rc.8, recommended)
+### Option 0: BOM for aligned versions (recommended)
 
 Import the BOM so module dependencies need no explicit version (no version drift):
 
@@ -155,13 +131,13 @@ upload-file:
 Available endpoints after startup:
 
 - `POST /upload` – upload one chunk
-- `GET /upload?action=progress&identifier=xxx` – query upload progress (`GET /upload` requires a known `action` since rc.6)
+- `GET /upload?action=progress&identifier=xxx` – query upload progress (`GET /upload` requires a known `action`)
 - `POST /upload?action=merge&identifier=xxx` – merge chunks
 - `POST /upload?action=mergeAsync&identifier=xxx` – submit an async merge (HTTP `202`), poll with `mergeStatus`
 - `GET /upload?action=mergeStatus&identifier=xxx` – query the async merge status
 - `POST /upload?action=cancel&identifier=xxx` – cancel a task and reclaim its data
 - `GET /download?identifier=xxx` – download (supports the `Range` header for resumable download). Registered only
-  when `upload-file.endpoint.download-enabled=true` (off by default since rc.6).
+  when `upload-file.endpoint.download-enabled=true` (off by default).
 
 > The auto-configuration is discovered through Spring Boot's `AutoConfiguration.imports` on Boot 3/4 and
 > through `spring.factories` on Boot 2.x. The servlet layer targets `javax.servlet` (Boot 2 / Servlet 3.1)
@@ -203,7 +179,7 @@ UploadProgress progress = service.getProgress(identifier);
 UploadResult result = service.merge(identifier);
 ```
 
-**Confirm phase (rc.4):** locate the merged artifact through the merge result or the task record, never
+**Confirm phase:** locate the merged artifact through the merge result or the task record, never
 by guessing the directory layout, and reclaim the task afterwards:
 
 ```java
@@ -224,11 +200,11 @@ while an async merge is pending/running.
 | `upload-file.metadata-dir` | *(empty)* | Task metadata dir; empty = in-memory (lost on restart) |
 | `upload-file.metadata-store` | `auto` | `auto` (file when `metadata-dir` set, otherwise memory) / `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | Verify per-chunk MD5 |
-| `upload-file.require-checksum` | `false` | With `verify-checksum=true`, reject a chunk whose `chunkMd5` is missing (rc.9; makes verification non-skippable) |
+| `upload-file.require-checksum` | `false` | With `verify-checksum=true`, reject a chunk whose `chunkMd5` is missing (verification is non-skippable) |
 | `upload-file.upload-url` | `/upload` | Upload servlet mapping |
 | `upload-file.download-url` | `/download` | Download servlet mapping |
-| `upload-file.max-chunk-size` | `10 MB` | Max bytes per chunk (rc.9 default 10 MB, was unlimited): enforced at the multipart layer and again by the service; `-1` disables the chunk limit |
-| `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); unset (`-1`) is derived from `max-chunk-size`/`max-file-size` (+1 MB); startup fails when request/chunk/file are all unbounded (rc.7/rc.9) |
+| `upload-file.max-chunk-size` | `10 MB` | Max bytes per chunk: enforced at the multipart layer and again by the service; `-1` disables the chunk limit |
+| `upload-file.max-request-size` | `-1` | Max request size in bytes (multipart); unset (`-1`) is derived from `max-chunk-size`/`max-file-size` (+1 MB); startup fails when request/chunk/file are all unbounded |
 | `upload-file.merge.fsync` | `true` | fsync the merge temp file before renaming |
 | `upload-file.merge.atomic` | `true` | Merge via temp file + atomic move |
 | `upload-file.cleanup.enabled` | `false` | Start the expired-task / orphan cleanup scheduler |
@@ -253,20 +229,20 @@ while an async merge is pending/running.
 | `upload-file.cleanup.use-redis-lock` | `false` | Use a Redis lease lock so only one instance runs cleanup |
 | `upload-file.observability.log-stats` | `true` | Log a structured cleanup-stats line after each pass |
 | `upload-file.migration.enabled` | `false` | Expose the `TaskStoreMigrator` bean (migration never runs automatically) |
-| `upload-file.endpoint.enabled` | `true` | Master endpoint switch (rc.6); `false` = beans-only (services wired, no servlet registered) |
-| `upload-file.endpoint.upload-enabled` | `true` | Register the upload servlet (rc.6) |
-| `upload-file.endpoint.download-enabled` | `false` | Register the download servlet (rc.6) — off by default (minimal exposure) |
-| `upload-file.http.error-body` | `legacy` | Failure body (rc.6): `legacy` (per-endpoint models) or `standard` (`UploadHttpError` + symbolic code) |
-| `upload-file.http.cancel-not-found-status` | `404` | Status for canceling a missing task (rc.6); `200` = idempotent reclaim |
-| `upload-file.multipart.strategy` | `component` | Multipart limits (rc.6): `component` / `spring` (follow `spring.servlet.multipart.*`) / `unlimited` |
-| `upload-file.observability.access-log` | `false` | Log one structured access-decision line per entry-point check (rc.6) |
-| `upload-file.lock.identifier-lock` | `local` | Identifier-lock provider (rc.7): `local` (in-process) or `redis` (distributed, requires `upload-file-store-redis`) |
-| `upload-file.lock.acquire-timeout` | `10s` | How long to wait for a distributed identifier lock before failing (rc.7) |
-| `upload-file.lock.ttl` | `30s` | Distributed identifier-lock lease TTL; auto-expires a crashed holder (rc.7) |
-| `upload-file.lock.renew-interval` | `ttl/3` | Distributed identifier-lock renewal cadence while held; `0` derives `ttl/3` (rc.8) |
-| `upload-file.quota.store` | `task-store` | Quota store (rc.7): `task-store` (rc.6 behaviour) or `redis` (atomic counter + startup reconcile, rc.8) |
-| `upload-file.observability.access-log-scope` | `task` | Access-log scope (rc.8): `task` (deny + task-level) / `deny` (denies only) / `all` (rc.7 per-decision) |
-| `upload-file.trusted-upload-service.enabled` | `true` | Whether to expose the `TrustedUploadService` bean (rc.8; trusted read-only facade, server-side only) |
+| `upload-file.endpoint.enabled` | `true` | Master endpoint switch; `false` = beans-only (services wired, no servlet registered) |
+| `upload-file.endpoint.upload-enabled` | `true` | Register the upload servlet |
+| `upload-file.endpoint.download-enabled` | `false` | Register the download servlet — off by default (minimal exposure) |
+| `upload-file.http.error-body` | `legacy` | Failure body: `legacy` (per-endpoint models) or `standard` (`UploadHttpError` + symbolic code) |
+| `upload-file.http.cancel-not-found-status` | `404` | Status for canceling a missing task; `200` = idempotent reclaim |
+| `upload-file.multipart.strategy` | `component` | Multipart limits: `component` / `spring` (follow `spring.servlet.multipart.*`) / `unlimited` |
+| `upload-file.observability.access-log` | `false` | Log one structured access-decision line per entry-point check |
+| `upload-file.lock.identifier-lock` | `local` | Identifier-lock provider: `local` (in-process) or `redis` (distributed, requires `upload-file-store-redis`) |
+| `upload-file.lock.acquire-timeout` | `10s` | How long to wait for a distributed identifier lock before failing |
+| `upload-file.lock.ttl` | `30s` | Distributed identifier-lock lease TTL; auto-expires a crashed holder |
+| `upload-file.lock.renew-interval` | `ttl/3` | Distributed identifier-lock renewal cadence while held; `0` derives `ttl/3` |
+| `upload-file.quota.store` | `task-store` | Quota store: `task-store` or `redis` (atomic counter + startup reconcile) |
+| `upload-file.observability.access-log-scope` | `task` | Access-log scope: `task` (deny + task-level) / `deny` (denies only) / `all` (every decision) |
+| `upload-file.trusted-upload-service.enabled` | `true` | Whether to expose the `TrustedUploadService` bean (trusted read-only facade, server-side only) |
 
 The dotted names above map to nested groups, so the same settings can be written in a grouped
 YAML form:
@@ -325,11 +301,11 @@ When security is off (the default), behavior is unchanged.
 > **Existing-login integrations:** to reuse your own session (Bearer/SSO) instead of a shared token,
 > implement the `AccessControl` SPI once and override `decide(...)` to return an `AccessDecision`
 > (`deny(403, ...)` distinguishes forbidden from unauthenticated) — the core invokes it at every endpoint.
-> Legacy implementations may still override `check(...)` only (a `@Deprecated` default method since rc.6,
+> Legacy implementations may still override `check(...)` only (a `@Deprecated` default method,
 > bridged through `decide()`). A Spring Security filter in front of `/upload` also works and is what most
 > single-tenant integrations do; the component only enforces its own SPI when it is installed.
 
-## Integration guidance (since 1.0.0-rc.4)
+## Integration guidance
 
 ### Locating the merged artifact ("confirm" phase)
 
@@ -339,10 +315,10 @@ re-derive `{storage-dir}/files/{identifier}/{fileName}` yourself. Typical flow:
 
 ```java
 // after the frontend reports merge SUCCEEDED / the sync merge returned
-UploadTask task = service.getTask(identifier).get();          // stable read (rc.4)
+UploadTask task = service.getTask(identifier).get();          // stable read
 Path artifact = Paths.get(task.getFinalPath());               // authoritative path
 Files.move(artifact, businessDir.resolve(task.getFileName())); // same disk => atomic move
-service.cancelUpload(identifier);                              // reclaim record + leftovers (rc.4)
+service.cancelUpload(identifier);                              // reclaim record + leftovers
 ```
 
 `cancelUpload` removes the task record, its chunks and the merged artifact dir, returns `false` when
@@ -408,10 +384,10 @@ unsatisfiable ranges, so integrations that serve their own storage (e.g. files t
 the component during the confirm phase) can reuse the parser instead of rewriting the range logic.
 Downloading a *component-merged* artifact is still best done through the official `/download` endpoint.
 
-## Migration guide: hand-rolled MVC endpoints → official Servlet (rc.6)
+## Migration guide: hand-rolled MVC endpoints → official Servlet
 
 For integrations that currently do "manual core wiring + hand-rolled MVC endpoints" (e.g. path-finder),
-the official HTTP layer is now adoptable on demand. The matrices and snippets below tell you which
+the official HTTP layer can be adopted on demand. The matrices and snippets below tell you which
 switches to flip and which files to touch.
 
 ### 1. Pick the artifact (coordinate matrix)
@@ -424,9 +400,9 @@ switches to flip and which files to touch.
 A `javax` artifact and its `-jakarta` twin **must not coexist on one classpath**; the FQCNs and
 `upload-file.*` properties are identical, so switching is a coordinate swap only.
 
-### 2. Difference matrix (hand-rolled vs official rc.6)
+### 2. Difference matrix (hand-rolled vs official)
 
-| Aspect | Hand-rolled MVC | Official Servlet (rc.6) | How to align |
+| Aspect | Hand-rolled MVC | Official Servlet | How to align |
 | --- | --- | --- | --- |
 | Success body | business envelope `{code,message,data}` | bare JSON (`UploadProgress`/`MergeStatus`/`UploadResult`) | branch on the component endpoints, or keep your own |
 | Failure body | business envelope | `legacy` (default, per-endpoint models) or `standard` (`UploadHttpError`) | need your own envelope → provide an `UploadErrorRenderer` bean |
@@ -443,7 +419,7 @@ A `javax` artifact and its `-jakarta` twin **must not coexist on one classpath**
 ```yaml
 upload-file:
   endpoint:
-    download-enabled: true    # restore the official download endpoint (off by default in rc.6)
+    download-enabled: true    # restore the official download endpoint (off by default)
   http:
     error-body: legacy        # or standard; for a business envelope provide an UploadErrorRenderer
     cancel-not-found-status: 404
@@ -454,10 +430,10 @@ upload-file:
 ### 4. Additive AccessControl migration
 
 A legacy implementation that only overrides `check(...)` still compiles and runs (a `@Deprecated`
-default method since rc.6, bridged through `decide()`); new implementations should override `decide()`:
+default method, bridged through `decide()`); new implementations should override `decide()`:
 
 ```java
-AccessControl ac = new AccessControl() {   // note: since rc.6 AccessControl is no longer a functional interface
+AccessControl ac = new AccessControl() {   // note: AccessControl is no longer a functional interface
     @Override
     public AccessDecision decide(String id, String action, String token) {
         if (!ownerOf(token).equals(ownerOf(id))) {
@@ -504,7 +480,8 @@ mvn install
 - Requires Maven 3.6.3+ and JDK 8+
 - Compiles with `--release 8`, producing JDK 8 bytecode — **usable directly on JDK 8**
 - Because `--release` is used, building from source requires JDK 9+ (to build on a JDK 8 toolchain, remove `maven.compiler.release` from the parent POM)
-- Since `1.0.0-rc.5` the reactor also contains the jakarta modules (`upload-file-servlet-jakarta`,
+- The reactor contains both the `javax` and `jakarta` lines: the jakarta modules
+  (`upload-file-servlet-jakarta`,
   `upload-file-spring-boot-starter-jakarta`, `example/upload-file-boot4-demo`), whose Spring Boot 4 /
   Servlet 6 dependencies need a **JDK 17+** toolchain. A full root `mvn verify` therefore runs on JDK 17+;
   to build only the JDK-8 `javax` line on a JDK 8 toolchain use a subset build, e.g.
@@ -569,15 +546,12 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 
 ## Docs
 
+- [Feature & Functionality List](docs/FEATURES.md)
 - [Design](docs/DESIGN.md)
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
+- [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md)
 - [Changelog](CHANGELOG.md)
-- [V1.0.0-rc.7 Task Plan (store correctness & extension-point consistency)](docs/PLAN-V1.0.0-rc.7.md)
-- [V1.0.0-rc.6 Task Plan (commercial HTTP-layer adoption)](docs/PLAN-V1.0.0-rc.6.md)
-- [V1.0.0-rc.5 Task Plan (Spring Boot 4 / jakarta starter)](docs/PLAN-V1.0.0-rc.5.md)
-- [V1.0.0-rc.4 Task Plan (feedback-driven integration)](docs/PLAN-V1.0.0-rc.4.md)
-- [V1.0.0-rc.3 Task Plan (production hardening)](docs/PLAN-V1.0.0-rc.3.md)
 
 ## License
 

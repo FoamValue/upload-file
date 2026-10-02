@@ -4,38 +4,35 @@
 
 ## Current Optimization Plan
 
-- The P0 items (5) are **implemented in `V1.0.0-rc.2`** (see the [V1.0.0 Task Development Plan](PLAN-V1.0.0-rc.2.md) for the original breakdown).
-- **`V1.0.0-rc.3`** (production-readiness hardening: access control / multi-instance constraints / size-quota / observability / migration / compat regression / 1.0.0 SOW) is **implemented in `1.0.0-rc.3`** — see [V1.0.0-rc.3 Task Plan](PLAN-V1.0.0-rc.3.md) and the [Changelog](../CHANGELOG.md).
-- **`V1.0.0-rc.4`** (feedback-driven) is done: stable per-identifier read (`getTask`) + explicit cancellation (`cancelUpload` / `action=cancel`), stable `UploadErrorCode` HTTP semantics, and cleanup / manual-wiring documentation — see the [V1.0.0-rc.4 Task Plan](PLAN-V1.0.0-rc.4.md), the [Changelog](../CHANGELOG.md) and the driving feedback in `doc/user-feedback/`.
-- **`V1.0.0-rc.5`** (jakarta adapter, feedback P0-1) is done: official `-jakarta` servlet module and Spring Boot **4.0.0+** starter (drop-in twins) plus a Boot 4 demo — see [V1.0.0-rc.5 Task Plan](PLAN-V1.0.0-rc.5.md) and the [Changelog](../CHANGELOG.md).
-- **`V1.0.0-rc.6`** (commercial HTTP-layer adoption: security & audit alignment) is done: controllable endpoint registration (`/download` off by default, beans-only mode), additive decision-returning `AccessControl` (`401`/`403` distinguishable) with audit hooks and `access-log`, symbolic error codes + opt-in `standard` error body, configurable multipart strategy, servlet behaviour convergence, and a "self-built MVC endpoint → official Servlet" migration guide — see [V1.0.0-rc.6 Task Plan](PLAN-V1.0.0-rc.6.md) and the [Changelog](../CHANGELOG.md).
-- **`V1.0.0-rc.7`** (store correctness & extension-point consistency, driven by the [rc.6 migration feedback](../doc/user-feedback/upload-file-rc6-migration-feedback.md)) is **implemented in `1.0.0-rc.7`**: Redis index leak + `list()` N+1, starter consuming a host `UploadErrorRenderer` bean, multipart safe default, distributed `IdentifierLockProvider`, atomic `QuotaStore`, trusted-read API consolidation, `AbstractAccessControl`, and starter wiring/security guardrails — see [V1.0.0-rc.7 Task Plan](PLAN-V1.0.0-rc.7.md) and the [Changelog](../CHANGELOG.md).
-- **`V1.0.0-rc.8`** (final pre-GA closure: quota/lock correctness + audit context + release engineering, driven by the [rc.7 usage feedback](../doc/user-feedback/upload-file-rc7-usage-feedback.md)) is **implemented in `1.0.0-rc.8`**: `RedisQuotaStore` auto-reconcile and merged-unconfirmed quota reclaim, `RedisIdentifierLockProvider` lease renewal, atomic `RedisTaskStore` migration and batched `list()`, audit context `AccessContext`, `access-log` noise reduction, `TrustedUploadService` auto-wiring, unified-envelope example, `upload-file-bom`, V1.0.0 SOW/API freeze and a binary-compat gate — see [V1.0.0-rc.8 Task Plan](PLAN-V1.0.0-rc.8.md), the [V1.0.0 SOW](PLAN-V1.0.0.md) and the [Changelog](../CHANGELOG.md).
-- **`V1.0.0-rc.9`** (security closure inside the freeze, driven by the [rc.8 usage feedback](../doc/user-feedback/upload-file-rc8-usage-feedback.md)) is **implemented in `1.0.0-rc.9`**: quota/size limits count actual bytes instead of trusting declared values, `max-chunk-size` defaults to 10 MB and startup fails when all limits are unbounded, `require-checksum` makes verification non-skippable, download path canonical-prefix validation, access-log injection filtering, per-entry isolated orphan cleanup, and a byte-bounded `ChunkStorage.saveChunk` overload — see the [V1.0.0 SOW / API freeze](PLAN-V1.0.0.md) and the [Changelog](../CHANGELOG.md).
-- **`1.0.0` (GA) released 2026-10-02**: the frozen rc.8 surface plus the rc.9 security closure
-  (actual-byte size counting, 10 MB default chunk limit with fail-fast, non-skippable checksum,
-  download path canonical-prefix validation, log-injection filtering, isolated cleanup,
-  byte-bounded chunk writes), with one binary-compat fix — `ChunkStorage.saveChunk` keeps its
-  `void` 3-arg signature (frozen since rc.7) and the byte-bounded overload is a `default` method.
-  From `1.0.0` the project follows semantic versioning, so breaking changes may only land in
-  `2.0.0`. The javax line (`upload-file-servlet` / `upload-file-spring-boot-starter`) is
-  maintenance-only from GA and converges to a single jakarta line in `2.0.0`.
-- P1/P2 items are pending confirmation.
+All planned items are delivered in **`1.0.0` (GA, released 2026-10-02)** — the five P0 storage/merge
+items (expired-task cleanup, atomic & async merge, orphan-data GC, pluggable metadata storage) plus the
+hardening accumulated across the release candidates: access control, size & global capacity quota,
+cleanup/access observability, task-store migration, the jakarta adapter & Boot 4 starter, controllable
+endpoint registration, distinguishable access decisions, distributed locking, quota reconciliation,
+audit context, the security closure (actual-byte size counting, 10 MB default chunk limit with
+fail-fast, non-skippable checksum, canonical download-path validation, log-injection filtering,
+isolated cleanup, byte-bounded chunk writes) and a binary-compat fix (`ChunkStorage.saveChunk` keeps
+its `void` 3-arg signature). From `1.0.0` the project follows semantic versioning, so breaking changes
+may only land in `2.0.0`; the javax line is maintenance-only from GA and converges to the jakarta line
+in `2.0.0`. Per-release details are in the [Changelog](../CHANGELOG.md).
+
+Remaining P1/P2 items (see the table below) are pending confirmation.
 
 ## Complete Optimization List
 
-The following are optional directions for future releases. P0 items are implemented in `1.0.0-rc.2`;
-P1/P2 items are not yet implemented. Sorted by priority, highest first.
+The following are optional directions for future releases. P0 items are implemented in `1.0.0` (GA);
+P1/P2 items are not yet implemented (several are partially implemented — see the notes). Sorted by
+priority, highest first.
 
 | Priority | Direction | Problem it solves | Notes | Proposed date | Planned release version |
 | --- | --- | --- | --- | --- | --- |
-| P0 ✅ | Expired-task cleanup (TTL/GC) | incomplete tasks and leftover chunks have no expiry mechanism and accumulate indefinitely on a long-running deployment | scheduled cleanup or configurable TTL built on `UploadTask.updateTime` | 2026-08-25 | implemented in V1.0.0-rc.2 |
-| P0 ✅ | Atomic merge | a crash mid-merge leaves a corrupt file | merge to a temp file in the same dir, rename on success, then update metadata | 2026-08-25 | implemented in V1.0.0-rc.2 |
-| P0 ✅ | Orphan data GC | leftover chunks/files cannot be reclaimed after metadata loss | startup scan + periodic diff between TaskStore and disk, clean orphans | 2026-08-25 | implemented in V1.0.0-rc.2 |
-| P0 ✅ | Async merge | large-file merge blocks the HTTP request and may time out | task queue + callback/polling for progress | 2026-08-25 | implemented in V1.0.0-rc.2 |
-| P0 ✅ | Pluggable metadata storage | multi-node / high availability | Redis/DB-backed TaskStore (SPI already provides the extension point) | 2026-08-25 | implemented in V1.0.0-rc.2 |
+| P0 ✅ | Expired-task cleanup (TTL/GC) | incomplete tasks and leftover chunks have no expiry mechanism and accumulate indefinitely on a long-running deployment | scheduled cleanup or configurable TTL built on `UploadTask.updateTime` | 2026-08-25 | implemented in 1.0.0 (GA) |
+| P0 ✅ | Atomic merge | a crash mid-merge leaves a corrupt file | merge to a temp file in the same dir, rename on success, then update metadata | 2026-08-25 | implemented in 1.0.0 (GA) |
+| P0 ✅ | Orphan data GC | leftover chunks/files cannot be reclaimed after metadata loss | startup scan + periodic diff between TaskStore and disk, clean orphans | 2026-08-25 | implemented in 1.0.0 (GA) |
+| P0 ✅ | Async merge | large-file merge blocks the HTTP request and may time out | task queue + callback/polling for progress | 2026-08-25 | implemented in 1.0.0 (GA) |
+| P0 ✅ | Pluggable metadata storage | multi-node / high availability | Redis/DB-backed TaskStore (SPI already provides the extension point) | 2026-08-25 | implemented in 1.0.0 (GA) |
 | P1 | Multi-tenancy | multiple people/businesses share one deployment | prefix identifier with a namespace; invisible across tenants, per-tenant quotas | 2026-08-25 | None (updated dynamically) |
-| P1 | Quota & rate limiting | per-user capacity cap, global throttling | upload/download rate limit, total capacity and per-file size quotas | 2026-08-25 | part: global capacity quota (`quota.max-bytes`) and per-file size limit shipped in V1.0.0-rc.3; per-user quota & rate limiting remain |
+| P1 🔄 | Quota & rate limiting | per-user capacity cap, global throttling | upload/download rate limit, total capacity and per-file size quotas | 2026-08-25 | partially implemented: global capacity quota (`quota.max-bytes`), per-file size limit and `RedisQuotaStore` reconciliation shipped in 1.0.0 (GA); per-user quota & rate limiting remain |
 | P1 | Instant upload (policy B) | re-uploading large files wastes bandwidth and time | served instantly only when the `identifier` exists in the `TaskStore` with `merged=true` and the final file is on disk; check runs on `getProgress` or the first `uploadChunk`; prerequisite: configure `upload-file.metadata-dir` (`FileTaskStore`), otherwise records are lost on restart; boundary: files manually copied into `files/<id>/` are not instant-uploaded | 2026-08-25 | None (updated dynamically) |
 | P1 | Content integrity check | server never verifies the whole-file hash, so content is not guaranteed to match the identifier | upgrade the `identifier` convention from whole-file MD5 to whole-file SHA-256; after merge the server recomputes the merged file's SHA-256 and compares it to the identifier, deleting the file and failing on mismatch; linked changes: client hashing algorithm, `ChecksumUtil`, `chunkMd5` semantics, docs/demos/tests | 2026-08-25 | None (updated dynamically) |
 | P1 | Single copy + alias index (storage model) | identical content under different file names wastes disk and aliases cannot be downloaded | physical file stored at `files/<identifier>/<identifier>`, identical content stored once; alias index `identifier -> List<fileName>` (including upload time etc.); instant upload = add the new name to the alias list; downloads resolve the physical file by identifier and use the requested alias for `Content-Disposition` (download API needs alias-based lookup or an alias list) | 2026-08-25 | None (updated dynamically) |
@@ -44,7 +41,7 @@ P1/P2 items are not yet implemented. Sorted by priority, highest first.
 | P1 | Multi-language SDK | HTTP-only API raises integration cost for business teams | Java/JS/Python, wrapping chunking, retry, and resume | 2026-08-25 | None (updated dynamically) |
 | P1 | Object-storage backend | single-node disk fills up, no scalability | wire S3/MinIO/OSS via the existing `ChunkStorage` SPI; or client-side direct upload coordinated by server signing | 2026-08-25 | None (updated dynamically) |
 | P1 | Recycle bin / soft delete | accidental deletion is irreversible | mark deleted first, physically remove after a TTL | 2026-08-25 | None (updated dynamically) |
-| P1 | Audit logging | compliance and traceability | full audit trail for upload/download/instant upload | 2026-08-25 | None (updated dynamically) |
+| P1 🔄 | Audit logging | compliance and traceability | full audit trail for upload/download/instant upload | 2026-08-25 | partially implemented: `AccessControlListener` audit hooks + structured `observability.access-log` (upload/download access decisions) shipped in 1.0.0 (GA); instant-upload audit trail ships with the instant-upload feature |
 | P2 | Virus scanning | uploaded files may contain malicious content | async scan after upload (ClamAV); download blocked until clean | 2026-08-25 | None (updated dynamically) |
 | P2 | File-type whitelist + magic-byte check | executables or disguised file types can be uploaded | extension whitelist + file magic-byte validation | 2026-08-25 | None (updated dynamically) |
 | P2 | Presigned download links | shares lack expiry and access control | shares with expiry, password, and usage limits | 2026-08-25 | None (updated dynamically) |
@@ -53,5 +50,5 @@ P1/P2 items are not yet implemented. Sorted by priority, highest first.
 | P2 | Compression | large files consume bandwidth and disk | transparent compression by content type to save bandwidth and disk | 2026-08-25 | None (updated dynamically) |
 | P2 | Preview / transcoding | no online preview of images/videos | image thumbnails, video transcoding, decoupled from the upload pipeline | 2026-08-25 | None (updated dynamically) |
 | P2 | Webhook | business teams cannot observe upload-complete events | push events on upload complete / instant-upload hit | 2026-08-25 | None (updated dynamically) |
-| P2 | Observability | lack of metrics and operational views | Prometheus metrics, structured logs, admin dashboard (storage stats, task queries) | 2026-08-25 | None (updated dynamically) |
+| P2 🔄 | Observability | lack of metrics and operational views | Prometheus metrics, structured logs, admin dashboard (storage stats, task queries) | 2026-08-25 | partially implemented: structured logs (cleanup stats + access-log) shipped in 1.0.0 (GA); Prometheus metrics and an admin dashboard remain |
 | P2 | TaskStore composition (multi-tier storage) | `-redis`/`-jdbc` are mutually exclusive single-choice; "cache + persistence" cannot be stacked | Borrow chain-of-responsibility to add a composable `CompositeTaskStore`; Advisor-analogy research and semantic pitfalls in the [analysis record](ANALYSIS-TaskStore-Composition.md); **shelved**, re-evaluate when a trigger is met | 2026-09-11 | None (updated dynamically) |

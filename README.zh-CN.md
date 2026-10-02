@@ -12,19 +12,6 @@
 > ✅ 状态：**Stable** `1.0.0`（GA）— **API 已冻结**。
 > 范围与兼容承诺见 [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)与[更新日志](CHANGELOG.zh-CN.md)。
 
-> ⚠️ **rc.8 升级提示**：①`observability.access-log` 的输出默认收敛为 `task` 级（deny + 任务级事件；每个任务
-> 仅记录首个分片的 `upload` 放行，后续分片跳过，日志量由每分片一行降为任务级）；如需 rc.7 的逐决策日志，设 `observability.access-log-scope=all`。
-> ②`quota.store=redis` 现于**启动期自动对账**并修正计数漂移，行为更正确、无需额外配置。③分布式 identifier 锁新增
-> 持有期续租，长合并不再因 `lock.ttl` 到期而失去互斥（`lock.renew-interval` 可覆盖，默认 `ttl/3`）。
-
-> ⚠️ **1.0.0 升级提示（自 rc.8，breaking 默认）**：starter 的 `upload-file.max-chunk-size` 默认改为 **10 MB**（原为不限），
-> 且 request / chunk / file 三层上限全部无界时**启动失败**——配置任一上限即可恢复启动。设
-> `upload-file.require-checksum=true` 后，缺失 `chunkMd5` 的分块将被拒绝，不再静默跳过校验。详见[更新日志](CHANGELOG.zh-CN.md)。
-
-> ⚠️ **rc.6 升级提示（breaking 默认）**：`/download` 默认不再注册（最小暴露面）。如依赖官方下载端点，请显式设置
-> `upload-file.endpoint.download-enabled=true`；另外 `GET /upload` 缺失/未知 `action` 现返回 `400`（不再当作 progress），
-> 服务端故障不再被吞成 `400`。详见[更新日志](CHANGELOG.zh-CN.md)。
-
 > 🇺🇸 [English](README.md)
 
 ## 特性
@@ -45,18 +32,18 @@
 - **任务存储迁移**：`TaskStoreMigrator` 可在存储间迁移进行中任务（如 `FileTaskStore` → JDBC/Redis）
 - **元数据版本化**：`schemaVersion` 字段，保障元数据格式安全演进
 - **多实例协调**：可选 Redis 租约锁，保证同一时刻只有一个实例执行清理调度
-- **任务显式读取与取消（rc.4）**：`getTask(identifier)` 作为集成侧「confirm 入库」阶段的稳定读接口；`cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` 可直接回收任务分片与合并产物，无需等待清理调度
-- **稳定的错误语义（rc.4）**：core 失败异常统一携带 `UploadErrorCode` 稳定 HTTP 状态码（`400`/`401`/`404`/`409`/`507`），Servlet 与 Spring 集成自动映射
-- **端点注册可控（rc.6）**：`upload-file.endpoint.*` 可开关上传/下载端点；`endpoint.enabled=false` 为纯 bean 模式（只装配服务 Bean）；`/download` 默认关闭（最小暴露面），服务 Bean 与注册 Bean 均可被宿主同名/同类型 Bean 覆盖
-- **可区分的访问决策（rc.6）**：`AccessControl.decide(...)` 返回 `AccessDecision`，拒绝可携带 `401`（未认证）或 `403`（越权）；旧 `check(...)` 保留为默认桥接，既有实现零改动
-- **审计钩子与访问日志（rc.6）**：可选 `AccessControlListener` 在每个入口（放行/拒绝 + 决策耗时）触发，MVC 与 Servlet 共用同一路径；`observability.access-log=true` 输出结构化访问日志
-- **符号错误码与统一错误体（rc.6）**：每个带码异常携带 `UploadErrorCodes` 中的稳定符号码；`http.error-body=standard` 输出统一 `UploadHttpError`，默认 `legacy` 保持旧端点模型
-- **multipart 策略化（rc.6）**：`multipart.strategy=component|spring|unlimited`，可在组件自管、跟随 `spring.servlet.multipart.*`、关闭容器上限之间选择
-- **配额/锁正确性收口（rc.8）**：`quota.store=redis` 启动期自动对账（`QuotaStore.reconcile`），清理回收已合并未确认任务的配额；分布式 identifier 锁持有期 watchdog 续租，长合并不再锁失效
-- **审计上下文（rc.8）**：`AccessContext` / `AccessContextHolder` 透传 method/URI/IP/UA，`AccessControlListener` 新增 6 参 `default` 重载（旧 5 参实现零改动）
-- **访问日志降噪（rc.8）**：`observability.access-log-scope=task|deny|all`，默认 `task` 每个任务仅记录首个分片放行日志（后续分片跳过）
-- **BOM（rc.8）**：`upload-file-bom` 统一 7 个库模块版本，宿主 `import` 后只写 `artifactId`
-- **`TrustedUploadService` 自动装配（rc.8）**：starter 默认暴露受信只读门面，宿主可覆写或经 `trusted-upload-service.enabled=false` 关闭
+- **任务显式读取与取消**：`getTask(identifier)` 作为集成侧「confirm 入库」阶段的稳定读接口；`cancelUpload(identifier)` / HTTP `POST /upload?action=cancel` 可直接回收任务分片与合并产物，无需等待清理调度
+- **稳定的错误语义**：core 失败异常统一携带 `UploadErrorCode` 稳定 HTTP 状态码（`400`/`401`/`404`/`409`/`507`），Servlet 与 Spring 集成自动映射
+- **端点注册可控**：`upload-file.endpoint.*` 可开关上传/下载端点；`endpoint.enabled=false` 为纯 bean 模式（只装配服务 Bean）；`/download` 默认关闭（最小暴露面），服务 Bean 与注册 Bean 均可被宿主同名/同类型 Bean 覆盖
+- **可区分的访问决策**：`AccessControl.decide(...)` 返回 `AccessDecision`，拒绝可携带 `401`（未认证）或 `403`（越权）；旧 `check(...)` 保留为默认桥接，既有实现零改动
+- **审计钩子与访问日志**：可选 `AccessControlListener` 在每个入口（放行/拒绝 + 决策耗时）触发，MVC 与 Servlet 共用同一路径；`observability.access-log=true` 输出结构化访问日志
+- **符号错误码与统一错误体**：每个带码异常携带 `UploadErrorCodes` 中的稳定符号码；`http.error-body=standard` 输出统一 `UploadHttpError`，默认 `legacy` 保持旧端点模型
+- **multipart 策略化**：`multipart.strategy=component|spring|unlimited`，可在组件自管、跟随 `spring.servlet.multipart.*`、关闭容器上限之间选择
+- **配额/锁正确性收口**：`quota.store=redis` 启动期自动对账（`QuotaStore.reconcile`），清理回收已合并未确认任务的配额；分布式 identifier 锁持有期 watchdog 续租，长合并不再锁失效
+- **审计上下文**：`AccessContext` / `AccessContextHolder` 透传 method/URI/IP/UA，`AccessControlListener` 新增 6 参 `default` 重载（旧 5 参实现零改动）
+- **访问日志降噪**：`observability.access-log-scope=task|deny|all`，默认 `task` 每个任务仅记录首个分片放行日志（后续分片跳过）
+- **BOM**：`upload-file-bom` 统一 7 个库模块版本，宿主 `import` 后只写 `artifactId`
+- **`TrustedUploadService` 自动装配**：starter 默认暴露受信只读门面，宿主可覆写或经 `trusted-upload-service.enabled=false` 关闭
 
 ## 模块说明
 
@@ -75,7 +62,7 @@
 
 ## 快速开始
 
-### 方式零：BOM 统一版本（rc.8，推荐）
+### 方式零：BOM 统一版本（推荐）
 
 引入 BOM 后，各模块依赖无需再写版本号，避免版本漂移：
 
@@ -137,13 +124,13 @@ upload-file:
 启动后即可使用：
 
 - `POST /upload` 上传分片
-- `GET /upload?action=progress&identifier=xxx` 查询进度（rc.6 起 `GET /upload` 必须有已知 `action`）
+- `GET /upload?action=progress&identifier=xxx` 查询进度（`GET /upload` 必须有已知 `action`）
 - `POST /upload?action=merge&identifier=xxx` 合并
 - `POST /upload?action=mergeAsync&identifier=xxx` 提交异步合并（HTTP `202`），用 `mergeStatus` 轮询
 - `GET /upload?action=mergeStatus&identifier=xxx` 查询异步合并状态
 - `POST /upload?action=cancel&identifier=xxx` 取消任务并回收其数据
 - `GET /download?identifier=xxx` 下载（支持 `Range` 头断点续传）。仅当 `upload-file.endpoint.download-enabled=true`
-  时注册（rc.6 起默认关闭）。
+  时注册（默认关闭）。
 
 > Boot 3/4 通过 `AutoConfiguration.imports`、Boot 2.x 通过 `spring.factories` 发现自动配置；servlet 层依据
 > 所选产物面向 `javax.servlet`（Boot 2 / Servlet 3.1）或 `jakarta.servlet`（Boot 3/4 / Tomcat 10+）。
@@ -183,7 +170,7 @@ UploadProgress progress = service.getProgress(identifier);
 UploadResult result = service.merge(identifier);
 ```
 
-**confirm 入库阶段（rc.4）：** 通过合并结果或任务记录定位合并产物，切勿自行推导目录结构；完成后回收任务：
+**confirm 入库阶段：** 通过合并结果或任务记录定位合并产物，切勿自行推导目录结构；完成后回收任务：
 
 ```java
 UploadTask task = service.getTask(identifier).get();        // 稳定读接口
@@ -203,11 +190,11 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.metadata-dir` | *(空)* | 任务元数据目录；为空使用内存（重启后丢失） |
 | `upload-file.metadata-store` | `auto` | `auto`（有 `metadata-dir` → file，否则 memory）/ `memory` / `file` / `jdbc` / `redis` |
 | `upload-file.verify-checksum` | `true` | 是否校验分片 MD5 |
-| `upload-file.require-checksum` | `false` | 与 `verify-checksum=true` 搭配时，缺失 `chunkMd5` 的分片将被拒绝（rc.9；使校验不可跳过） |
+| `upload-file.require-checksum` | `false` | 与 `verify-checksum=true` 搭配时，缺失 `chunkMd5` 的分片将被拒绝（校验不可跳过） |
 | `upload-file.upload-url` | `/upload` | 上传 Servlet 映射路径 |
 | `upload-file.download-url` | `/download` | 下载 Servlet 映射路径 |
-| `upload-file.max-chunk-size` | `10 MB` | 单个分片最大字节数（rc.9 起默认 10 MB，原为不限）：multipart 层与上传服务双重限制；`-1` 关闭分片上限 |
-| `upload-file.max-request-size` | `-1` | 单个请求最大字节数（multipart）；未配置（`-1`）时由 `max-chunk-size`/`max-file-size` 推导（+1 MB）；request / chunk / file 三层全部无界时启动失败（rc.7/rc.9） |
+| `upload-file.max-chunk-size` | `10 MB` | 单个分片最大字节数：multipart 层与上传服务双重限制；`-1` 关闭分片上限 |
+| `upload-file.max-request-size` | `-1` | 单个请求最大字节数（multipart）；未配置（`-1`）时由 `max-chunk-size`/`max-file-size` 推导（+1 MB）；request / chunk / file 三层全部无界时启动失败 |
 | `upload-file.merge.fsync` | `true` | 改名落位前是否 fsync 合并临时文件 |
 | `upload-file.merge.atomic` | `true` | 是否采用「临时文件 + 原子改名」合并 |
 | `upload-file.cleanup.enabled` | `false` | 是否启动过期任务/孤儿清理调度 |
@@ -232,20 +219,20 @@ PENDING/RUNNING 期间抛出 `409`。
 | `upload-file.cleanup.use-redis-lock` | `false` | 使用 Redis 租约锁，保证单实例执行清理 |
 | `upload-file.observability.log-stats` | `true` | 每次清理后输出结构化统计日志 |
 | `upload-file.migration.enabled` | `false` | 暴露 `TaskStoreMigrator` Bean（迁移从不自动执行） |
-| `upload-file.endpoint.enabled` | `true` | 端点总开关（rc.6）；`false` = 纯 bean 模式（只装配服务 Bean、不注册 Servlet） |
-| `upload-file.endpoint.upload-enabled` | `true` | 是否注册上传 Servlet（rc.6） |
-| `upload-file.endpoint.download-enabled` | `false` | 是否注册下载 Servlet（rc.6）——默认关闭（最小暴露面） |
-| `upload-file.http.error-body` | `legacy` | 失败响应体（rc.6）：`legacy`（端点专用模型）或 `standard`（`UploadHttpError` + 符号码） |
-| `upload-file.http.cancel-not-found-status` | `404` | 取消不存在任务的状态码（rc.6）；`200` = 幂等回收 |
-| `upload-file.multipart.strategy` | `component` | multipart 上限（rc.6）：`component` / `spring`（跟随 `spring.servlet.multipart.*`）/ `unlimited` |
-| `upload-file.observability.access-log` | `false` | 每个入口访问决策输出一行结构化日志（rc.6） |
-| `upload-file.lock.identifier-lock` | `local` | identifier 锁提供者（rc.7）：`local`（进程内）或 `redis`（分布式，需 `upload-file-store-redis`） |
-| `upload-file.lock.acquire-timeout` | `10s` | 获取分布式 identifier 锁的等待上限，超时失败（rc.7） |
-| `upload-file.lock.ttl` | `30s` | 分布式 identifier 锁租约 TTL，持有者崩溃后自动过期（rc.7） |
-| `upload-file.lock.renew-interval` | `ttl/3` | 分布式 identifier 锁持有期续租周期；`0` = 按 `ttl/3` 推导（rc.8） |
-| `upload-file.quota.store` | `task-store` | 配额存储（rc.7）：`task-store`（rc.6 行为）或 `redis`（原子计数 + 启动自动对账，rc.8） |
-| `upload-file.observability.access-log-scope` | `task` | 访问日志范围（rc.8）：`task`（deny + 任务级）/`deny`（仅 deny）/`all`（rc.7 逐决策） |
-| `upload-file.trusted-upload-service.enabled` | `true` | 是否暴露 `TrustedUploadService` Bean（rc.8；受信只读门面，仅供服务端使用） |
+| `upload-file.endpoint.enabled` | `true` | 端点总开关；`false` = 纯 bean 模式（只装配服务 Bean、不注册 Servlet） |
+| `upload-file.endpoint.upload-enabled` | `true` | 是否注册上传 Servlet |
+| `upload-file.endpoint.download-enabled` | `false` | 是否注册下载 Servlet——默认关闭（最小暴露面） |
+| `upload-file.http.error-body` | `legacy` | 失败响应体：`legacy`（端点专用模型）或 `standard`（`UploadHttpError` + 符号码） |
+| `upload-file.http.cancel-not-found-status` | `404` | 取消不存在任务的状态码；`200` = 幂等回收 |
+| `upload-file.multipart.strategy` | `component` | multipart 上限：`component` / `spring`（跟随 `spring.servlet.multipart.*`）/ `unlimited` |
+| `upload-file.observability.access-log` | `false` | 每个入口访问决策输出一行结构化日志 |
+| `upload-file.lock.identifier-lock` | `local` | identifier 锁提供者：`local`（进程内）或 `redis`（分布式，需 `upload-file-store-redis`） |
+| `upload-file.lock.acquire-timeout` | `10s` | 获取分布式 identifier 锁的等待上限，超时失败 |
+| `upload-file.lock.ttl` | `30s` | 分布式 identifier 锁租约 TTL，持有者崩溃后自动过期 |
+| `upload-file.lock.renew-interval` | `ttl/3` | 分布式 identifier 锁持有期续租周期；`0` = 按 `ttl/3` 推导 |
+| `upload-file.quota.store` | `task-store` | 配额存储：`task-store` 或 `redis`（原子计数 + 启动自动对账） |
+| `upload-file.observability.access-log-scope` | `task` | 访问日志范围：`task`（deny + 任务级）/`deny`（仅 deny）/`all`（逐决策） |
+| `upload-file.trusted-upload-service.enabled` | `true` | 是否暴露 `TrustedUploadService` Bean（受信只读门面，仅供服务端使用） |
 
 上表中的点号名称对应嵌套分组，因此同样的配置也可以用分组 YAML 书写：
 
@@ -299,10 +286,10 @@ upload-file:
 
 > **对接已有登录态：** 如需复用自有会话（Bearer/SSO）而非共享令牌，实现一次 `AccessControl` SPI 并覆写
 > `decide(...)` 返回 `AccessDecision`（`deny(403, ...)` 可区分越权与未认证）即可——core 会在每个入口调用它；
-> 旧实现也可继续只覆写 `check(...)`（自 rc.6 起为 `@Deprecated` 默认方法，经 `decide()` 桥接）。在 `/upload` 前置 Spring Security
+> 旧实现也可继续只覆写 `check(...)`（`@Deprecated` 默认方法，经 `decide()` 桥接）。在 `/upload` 前置 Spring Security
 > 过滤器同样可行（多数单组织私有部署的选择）；组件只在自身 SPI 被装配时才强制其鉴权。
 
-## 集成指南（自 1.0.0-rc.4 起）
+## 集成指南
 
 ### 合并产物的定位（confirm 入库阶段）
 
@@ -312,10 +299,10 @@ upload-file:
 
 ```java
 // 前端报告合并 SUCCEEDED / 同步 merge 返回后
-UploadTask task = service.getTask(identifier).get();           // 稳定读接口（rc.4）
+UploadTask task = service.getTask(identifier).get();           // 稳定读接口
 Path artifact = Paths.get(task.getFinalPath());                // 权威路径
 Files.move(artifact, businessDir.resolve(task.getFileName())); // 同盘 => 原子移动
-service.cancelUpload(identifier);                              // 回收记录 + 残留（rc.4）
+service.cancelUpload(identifier);                              // 回收记录 + 残留
 ```
 
 `cancelUpload` 删除任务记录、其分片与合并产物目录；任务不存在时返回 `false`，异步合并 PENDING/RUNNING
@@ -376,9 +363,9 @@ core 的 `DownloadRange.parse(String)` 可解析单段/多段 `Range` 头并识�
 提供下载（例如 confirm 阶段已迁出组件的文件），可直接复用它而非重写 Range 逻辑。下载仍存于组件的
 合并产物，仍建议走官方 `/download` 端点。
 
-## 迁移向导：自研 MVC 端点 → 官方 Servlet（rc.6）
+## 迁移向导：自研 MVC 端点 → 官方 Servlet
 
-面向「core 手工装配 + 自研 MVC 端点」（如 path-finder）的接入方：官方 HTTP 层在 rc.6 已可按需采用，
+面向「core 手工装配 + 自研 MVC 端点」（如 path-finder）的接入方：官方 HTTP 层可按需采用，
 以下矩阵与片段帮助判断「翻哪些开关、动哪几个文件」。
 
 ### 1. 选产物（坐标矩阵）
@@ -390,9 +377,9 @@ core 的 `DownloadRange.parse(String)` 可解析单段/多段 `Range` 头并识�
 
 同一 `javax` 与其 `-jakarta` 孪生版**不可同存于同一 classpath**；FQCN 与 `upload-file.*` 属性一致，切换只换坐标。
 
-### 2. 差异矩阵（自研端点 vs 官方 rc.6）
+### 2. 差异矩阵（自研端点 vs 官方）
 
-| 维度 | 自研 MVC 端点 | 官方 Servlet（rc.6） | 如何对齐 |
+| 维度 | 自研 MVC 端点 | 官方 Servlet | 如何对齐 |
 | --- | --- | --- | --- |
 | 成功响应体 | 业务统一信封 `{code,message,data}` | 组件裸 JSON（`UploadProgress`/`MergeStatus`/`UploadResult`） | 前端对组件端点单独分支，或保留自研端点 |
 | 失败响应体 | 业务信封 | `legacy`（默认，端点模型）或 `standard`（`UploadHttpError`） | 需自有信封 → 提供 `UploadErrorRenderer` Bean |
@@ -409,7 +396,7 @@ core 的 `DownloadRange.parse(String)` 可解析单段/多段 `Range` 头并识�
 ```yaml
 upload-file:
   endpoint:
-    download-enabled: true    # 恢复官方下载端点（rc.6 默认关闭）
+    download-enabled: true    # 恢复官方下载端点（默认关闭）
   http:
     error-body: legacy        # 或 standard；需业务信封请提供 UploadErrorRenderer
     cancel-not-found-status: 404
@@ -419,11 +406,11 @@ upload-file:
 
 ### 4. AccessControl 增量迁移
 
-旧实现只覆写 `check(...)` 仍可编译运行（rc.6 起为 `@Deprecated` 默认方法，经 `decide()` 桥接）；新实现建议覆写
+旧实现只覆写 `check(...)` 仍可编译运行（`@Deprecated` 默认方法，经 `decide()` 桥接）；新实现建议覆写
 `decide()`：
 
 ```java
-AccessControl ac = new AccessControl() {   // 注意：rc.6 起 AccessControl 不再是函数式接口
+AccessControl ac = new AccessControl() {   // 注意：AccessControl 不再是函数式接口
     @Override
     public AccessDecision decide(String id, String action, String token) {
         if (!ownerOf(token).equals(ownerOf(id))) {
@@ -468,7 +455,7 @@ mvn install
 - 要求 Maven 3.6.3+、JDK 8+；
 - 编译目标 `--release 8`，产物为 JDK8 字节码，**JDK 8 可直接引用**；
 - 由于使用了 `--release`，从源码构建需要 JDK 9+（若须在 JDK 8 工具链上构建，移除父 POM 中的 `maven.compiler.release` 即可）；
-- 自 `1.0.0-rc.5` 起 reactor 含 jakarta 模块（`upload-file-servlet-jakarta`、
+- reactor 含 jakarta 模块（`upload-file-servlet-jakarta`、
   `upload-file-spring-boot-starter-jakarta`、`example/upload-file-boot4-demo`），其 Spring Boot 4 / Servlet 6
   依赖需要 **JDK 17+** 工具链，因此根目录全量 `mvn verify` 需在 JDK 17+ 上执行；在 JDK 8 工具链上仅构建
   `javax` 线请用子集构建，如 `mvn install -pl upload-file-core,upload-file-servlet,upload-file-spring-boot-starter -am`。
@@ -531,15 +518,12 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 
 ## 文档
 
+- [特性与功能列表](docs/FEATURES.zh-CN.md)
 - [架构设计](docs/DESIGN.zh-CN.md)
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
+- [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
-- [V1.0.0-rc.7 任务开发计划（存储正确性与扩展点一致性收口）](docs/PLAN-V1.0.0-rc.7.zh-CN.md)
-- [V1.0.0-rc.6 任务开发计划（HTTP 层商业化可接入）](docs/PLAN-V1.0.0-rc.6.zh-CN.md)
-- [V1.0.0-rc.5 任务开发计划（Spring Boot 4 / jakarta starter）](docs/PLAN-V1.0.0-rc.5.zh-CN.md)
-- [V1.0.0-rc.4 任务开发计划（反馈驱动集成优化）](docs/PLAN-V1.0.0-rc.4.zh-CN.md)
-- [V1.0.0-rc.3 任务开发计划（生产就绪加固）](docs/PLAN-V1.0.0-rc.3.zh-CN.md)
 
 ## 许可证
 
