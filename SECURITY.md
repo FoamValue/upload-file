@@ -4,9 +4,12 @@
 
 ## Reporting a Vulnerability
 
-Please report security issues **privately** — do not open a public issue first.
+**Preferred channel: a public GitHub issue.** Open an issue at
+<https://github.com/FoamValue/upload-file/issues/new> with a `[SECURITY]` title prefix, so the
+report is transparent, filterable and trackable for the whole community.
 
-**Preferred channel:** the repository's private vulnerability report at
+If you need full privacy until a fix is released (e.g. a sensitive exploit), you can alternatively
+use the repository's private vulnerability report at
 <https://github.com/FoamValue/upload-file/security/advisories/new> (GitHub "Report a vulnerability",
 visible only to the maintainer).
 
@@ -17,12 +20,23 @@ Please include:
 - the observed impact (data loss, DoS, quota bypass, …);
 - any fix suggestion you may have.
 
-## Response commitment
+## Scope
 
-1. Acknowledgment within **3 business days**.
-2. Triage and confirmation; for a confirmed issue on the current GA line (`1.0.0.x`) a patch
-   release is targeted within **14 days**.
-3. Credit in the changelog unless you prefer to stay anonymous.
+A security issue is anything that affects the confidentiality, integrity or availability of the
+component: data loss, unauthorized access (access-control or quota bypass), denial of service,
+path traversal, checksum/verification bypass, log injection, and similar OWASP Top-10 categories.
+Bugs, feature requests and usage questions are not security reports — please open a regular issue.
+
+## How We Handle Reports
+
+As an open-source project we work on a best-effort basis and do not commit to a fixed response or
+patch timeline. The usual flow is:
+
+1. **Acknowledge** — the report is confirmed on the issue (label and/or reply).
+2. **Triage & reproduce** — severity is assessed and the impact confirmed.
+3. **Fix & test** — the fix is implemented with a regression test.
+4. **Release** — the fix ships with the next applicable version of the current GA line (`1.0.0.x`).
+5. **Credit** — the fix is credited in the changelog unless you prefer to stay anonymous.
 
 ## Supported versions
 
@@ -33,8 +47,14 @@ Please include:
 
 ## Disclosure
 
-We ask that details stay private until a fixed release is published, so users have a chance to
-upgrade before the issue is publicly known.
+For public-issue reports the thread itself is visible to everyone. To give users a chance to upgrade
+before an exploit becomes public, please keep full attack details (e.g. a ready-to-run PoC) out of
+the issue until a fixed release is published — a summary and the impact in the issue are enough, and
+the private advisory channel is there if you need complete secrecy in the meantime.
+
+## Bug Bounty
+
+This project does not offer a bug bounty program.
 
 ## Security hardening in 1.0.0
 
