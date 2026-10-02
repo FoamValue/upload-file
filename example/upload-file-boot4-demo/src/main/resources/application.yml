@@ -48,7 +48,9 @@ upload-file:
   #   mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=enterprise
   # then call any endpoint with ?token=deny-me to receive a 403.
 
-  # --- rc.3 production-hardening examples (commented out, keep defaults to stay open) ---
+  # --- rc.3 production-hardening examples (commented out). The demo endpoints stay open, but the
+  # rc.9 defaults already bound them: max-chunk-size is 10 MB and startup fails fast when no limit
+  # is configured at all. ---
   # Optional access control: enable + a token, then every endpoint requires the token
   # in the "X-Access-Token" header (or a "token" query param).
   #security:

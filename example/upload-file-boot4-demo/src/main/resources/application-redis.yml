@@ -1,0 +1,13 @@
+# Redis store profile: task metadata persisted in upload-file-store-redis (Jedis). Requires a
+# reachable Redis server at upload-file.redis.host:port. Run:
+#   mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=redis
+upload-file:
+  # Switch the metadata store from auto (file, via metadata-dir) to the Redis store; the base
+  # metadata-dir is ignored while metadata-store=redis is active.
+  metadata-store: redis
+  redis:
+    host: localhost
+    port: 6379
+    key-prefix: upload:demo:task:
+    # Optional: expire task metadata 24 h after the last write (0 = never).
+    ttl-seconds: 86400

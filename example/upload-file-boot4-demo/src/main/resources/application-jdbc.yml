@@ -1,0 +1,14 @@
+# JDBC store profile: task metadata persisted in upload-file-store-jdbc on an embedded H2
+# database (no external service needed). Run:
+#   mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=jdbc
+spring:
+  datasource:
+    url: jdbc:h2:mem:upload-file-demo;DB_CLOSE_DELAY=-1
+    driver-class-name: org.h2.Driver
+    username: sa
+
+upload-file:
+  # Switch the metadata store from auto (file, via metadata-dir) to the JDBC store; the base
+  # metadata-dir is ignored while metadata-store=jdbc is active. The task table is created
+  # automatically from upload-file.jdbc.init-sql (default).
+  metadata-store: jdbc

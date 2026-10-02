@@ -521,6 +521,21 @@ mvn -pl example/upload-file-boot4-demo spring-boot:run
 Open <http://localhost:8080/> and exercise chunked upload, pause/resume, async merge and resumable download
 on a real Boot 4 (`jakarta`) runtime.
 
+**Optional metadata-store profiles** (Boot 4 demo): the optional store plugins
+(`upload-file-store-jdbc`, `upload-file-store-redis`) are on the demo classpath and switchable via
+Spring profiles. `jdbc` uses an embedded H2 database (no external service); `redis` requires a
+reachable Redis server at `upload-file.redis.host:port`:
+
+```bash
+mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=jdbc
+mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=redis
+```
+
+The `jdbc` profile is covered automatically by `JdbcStoreProfileSmokeTest`; the `redis` profile is
+exercised manually. Both Spring demos ship a `@SpringBootTest` smoke test (`DemoApplicationSmokeTest`)
+that boots the real app on a random port and verifies the static page and the core beans, so
+`mvn test` covers the demo modules too.
+
 **Spring Boot 2 demo** (`example/upload-file-demo`):
 
 ```bash

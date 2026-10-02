@@ -484,6 +484,19 @@ mvn -pl example/upload-file-boot4-demo spring-boot:run
 浏览器访问 <http://localhost:8080/>，在真实 Boot 4（`jakarta`）运行时上体验分片上传、暂停续传、
 异步合并与断点续传下载。
 
+**可选元数据存储 Profile**（Boot 4 Demo）：可选存储插件（`upload-file-store-jdbc`、
+`upload-file-store-redis`）已加入 demo classpath，可通过 Spring profile 切换。`jdbc` 使用内嵌
+H2 数据库（无需外部服务）；`redis` 需要一个可访问的 Redis 服务器（`upload-file.redis.host:port`）：
+
+```bash
+mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=jdbc
+mvn -pl example/upload-file-boot4-demo spring-boot:run -Dspring-boot.run.profiles=redis
+```
+
+其中 `jdbc` profile 由 `JdbcStoreProfileSmokeTest` 自动覆盖，`redis` profile 手动运行验证。两个
+Spring demo 均内置一个 `@SpringBootTest` 冒烟测试（`DemoApplicationSmokeTest`）：以随机端口启动真实
+应用并验证静态页面与核心 Bean，因此 `mvn test` 也会覆盖 demo 模块。
+
 **Spring Boot 2 Demo**（`example/upload-file-demo`）：
 
 ```bash

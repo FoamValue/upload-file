@@ -37,6 +37,19 @@
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
+            <!-- Pin h2/jedis to the project-managed versions (inherited from the parent POM): the
+                 store modules were built against them, and the Boot 4 BOM would otherwise supply
+                 its own (possibly incompatible) versions for these artifacts. -->
+            <dependency>
+                <groupId>com.h2database</groupId>
+                <artifactId>h2</artifactId>
+                <version>${h2.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>redis.clients</groupId>
+                <artifactId>jedis</artifactId>
+                <version>${jedis.version}</version>
+            </dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -48,6 +61,40 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- Optional metadata-store plugins, exercised by the jdbc / redis profiles (application-jdbc.yml,
+             application-redis.yml). -->
+        <dependency>
+            <groupId>cn.chenxinjie</groupId>
+            <artifactId>upload-file-store-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>cn.chenxinjie</groupId>
+            <artifactId>upload-file-store-redis</artifactId>
+        </dependency>
+        <!-- JDBC profile: spring-boot-starter-jdbc provides the DataSource auto-configuration
+             (Hikari + spring-jdbc) and h2 the embedded database, so the jdbc profile runs with no
+             external service. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Redis profile: Jedis client for upload-file-store-redis (no server-side dependency). -->
+        <dependency>
+            <groupId>redis.clients</groupId>
+            <artifactId>jedis</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- Demo-level smoke tests (@SpringBootTest), part of the normal mvn test build. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
