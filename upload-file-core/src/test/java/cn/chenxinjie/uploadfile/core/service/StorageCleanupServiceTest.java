@@ -476,9 +476,8 @@ public class StorageCleanupServiceTest {
         private final Map<String, List<Integer>> chunks = new HashMap<>();
 
         @Override
-        public long saveChunk(String identifier, int chunkIndex, InputStream in) {
+        public void saveChunk(String identifier, int chunkIndex, InputStream in) {
             chunks.computeIfAbsent(identifier, k -> new ArrayList<>()).add(chunkIndex);
-            return 0;
         }
 
         @Override

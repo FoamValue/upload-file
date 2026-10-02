@@ -22,33 +22,82 @@ public interface ChunkStorage {
     /**
      * Stores a chunk.
      *
+     * <p>This is the original frozen-SPI method, binary-compatible with rc.7/rc.8: custom
+     * implementations compiled against those versions keep working unchanged. New
+     * implementations should prefer {@link #saveChunk(String, int, InputStream, long)}, which
+     * reports the written byte count and can enforce the limit mid-stream.</p>
+     *
      * @param identifier unique file identifier
      * @param chunkIndex chunk index (starts at 0)
      * @param in         input stream of the chunk content; the whole stream is consumed by this method
-     * @return the number of bytes written to disk
      */
-    long saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException;
+    void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException;
 
     /**
-     * Stores a chunk with a byte limit, aborting mid-stream once the limit is exceeded so an
-     * oversized chunk is never fully written to disk (M5).
+     * Stores a chunk with a byte limit and returns the number of bytes actually written.
      *
-     * <p>Default implementation delegates to {@link #saveChunk(String, int, InputStream)} and
-     * then checks the size, so custom implementations that want true streaming should override
-     * this method.</p>
+     * <p>The default implementation wraps the stream in a byte counter and delegates to
+     * {@link #saveChunk(String, int, InputStream)}, so size accounting is always based on the
+     * actual bytes read (H1) even for implementations that only know the original signature; when
+     * the limit is exceeded the chunk is deleted and an {@link IOException} is thrown. Implementations
+     * that want to abort mid-stream instead of writing the whole payload first should override this
+     * method (see {@link LocalFileChunkStorage}).</p>
      *
      * @param maxBytes maximum bytes to write; a value &lt;= 0 means unlimited
-     * @throws IOException if the chunk exceeds {@code maxBytes} (the partial temp file is removed)
+     * @return the number of bytes actually written
+     * @throws IOException if the chunk exceeds {@code maxBytes} (the chunk is deleted)
      */
     default long saveChunk(String identifier, int chunkIndex, InputStream in, long maxBytes)
             throws IOException {
-        long written = saveChunk(identifier, chunkIndex, in);
+        CountingInputStream counting = new CountingInputStream(in);
+        saveChunk(identifier, chunkIndex, counting);
+        long written = counting.written();
         if (maxBytes > 0 && written > maxBytes) {
             deleteChunk(identifier, chunkIndex);
             throw new IOException("Chunk " + chunkIndex + " exceeds the maximum allowed size of "
                     + maxBytes + " bytes (wrote " + written + ")");
         }
         return written;
+    }
+
+    /**
+     * Counts the bytes read from the delegate stream, so the actual written size is known even
+     * when delegating to the legacy 3-arg method of a custom implementation.
+     */
+    final class CountingInputStream extends java.io.InputStream {
+        private final java.io.InputStream delegate;
+        private long written;
+
+        CountingInputStream(java.io.InputStream delegate) {
+            this.delegate = delegate;
+        }
+
+        long written() {
+            return written;
+        }
+
+        @Override
+        public int read() throws IOException {
+            int b = delegate.read();
+            if (b != -1) {
+                written++;
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            int n = delegate.read(b, off, len);
+            if (n > 0) {
+                written += n;
+            }
+            return n;
+        }
+
+        @Override
+        public void close() throws IOException {
+            delegate.close();
+        }
     }
 
     boolean chunkExists(String identifier, int chunkIndex);

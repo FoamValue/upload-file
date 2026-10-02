@@ -60,8 +60,8 @@ public class LocalFileChunkStorage implements ChunkStorage {
     }
 
     @Override
-    public long saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
-        return saveChunk(identifier, chunkIndex, in, 0);
+    public void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
+        saveChunk(identifier, chunkIndex, in, 0);
     }
 
     @Override

@@ -113,8 +113,12 @@ class UploadFileAutoConfigurationDirectTest {
             FileTaskStore store = new FileTaskStore(root.toPath().resolve("meta"));
             ChunkStorage failingChunks = new ChunkStorage() {
                 @Override
-                public long saveChunk(String identifier, int chunkIndex, java.io.InputStream in) {
-                    return 0;
+                public void saveChunk(String identifier, int chunkIndex, java.io.InputStream in) {
+                    try {
+                        in.close();
+                    } catch (java.io.IOException ignored) {
+                        // no-op storage for the cleanup error-path test
+                    }
                 }
 
                 @Override

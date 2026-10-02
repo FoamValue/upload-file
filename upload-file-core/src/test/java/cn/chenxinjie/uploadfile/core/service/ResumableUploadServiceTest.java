@@ -857,8 +857,8 @@ public class ResumableUploadServiceTest {
         }
 
         @Override
-        public long saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
-            return delegate.saveChunk(identifier, chunkIndex, in);
+        public void saveChunk(String identifier, int chunkIndex, InputStream in) throws IOException {
+            delegate.saveChunk(identifier, chunkIndex, in);
         }
 
         @Override
