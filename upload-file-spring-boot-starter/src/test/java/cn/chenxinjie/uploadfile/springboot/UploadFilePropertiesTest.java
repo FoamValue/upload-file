@@ -169,4 +169,30 @@ class UploadFilePropertiesTest {
         assertEquals("unlimited", properties.getMultipart().getStrategy());
         assertTrue(properties.getObservability().isAccessLog());
     }
+
+    @Test
+    void quotaStoreAndLockGroupSettersRoundTrip() {
+        // rc.7: quota-store selection and the distributed identifier-lock group.
+        properties.setRequireChecksum(true);
+        assertTrue(properties.isRequireChecksum());
+
+        properties.getQuota().setStore("redis");
+        assertEquals("redis", properties.getQuota().getStore());
+
+        UploadFileProperties.Lock lock = properties.getLock();
+        assertEquals("local", lock.getIdentifierLock());
+        assertEquals(Duration.ofSeconds(10), lock.getAcquireTimeout());
+        assertEquals(Duration.ofSeconds(30), lock.getTtl());
+        assertEquals(Duration.ZERO, lock.getRenewInterval());
+
+        lock.setIdentifierLock("redis");
+        lock.setAcquireTimeout(Duration.ofSeconds(5));
+        lock.setTtl(Duration.ofSeconds(60));
+        lock.setRenewInterval(Duration.ofSeconds(20));
+
+        assertEquals("redis", lock.getIdentifierLock());
+        assertEquals(Duration.ofSeconds(5), lock.getAcquireTimeout());
+        assertEquals(Duration.ofSeconds(60), lock.getTtl());
+        assertEquals(Duration.ofSeconds(20), lock.getRenewInterval());
+    }
 }
