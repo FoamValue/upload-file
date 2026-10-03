@@ -547,6 +547,7 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 ## Docs
 
 - [Feature & Functionality List](docs/FEATURES.md)
+- [Test Coverage Report](docs/TEST-COVERAGE.md)
 - [Design](docs/DESIGN.md)
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)

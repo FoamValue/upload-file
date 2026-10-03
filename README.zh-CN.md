@@ -519,6 +519,7 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 ## 文档
 
 - [特性与功能列表](docs/FEATURES.zh-CN.md)
+- [测试覆盖报告](docs/TEST-COVERAGE.zh-CN.md)
 - [架构设计](docs/DESIGN.zh-CN.md)
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
