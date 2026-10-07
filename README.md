@@ -1,16 +1,18 @@
 # upload-file
 
+[![Maven Central](https://img.shields.io/maven-central/v/cn.chenxinjie/upload-file?label=Maven%20Central)](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file)
+
 Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / HTTP `Range` resumable download**. Pure Java, compatible with JDK 8 and above.
 
 | | |
 | --- | --- |
-| Coordinates | `cn.chenxinjie:upload-file:1.0.0` (parent POM / aggregator); BOM: `cn.chenxinjie:upload-file-bom:1.0.0` |
+| Coordinates | [`cn.chenxinjie:upload-file:1.0.0`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file) (parent POM / aggregator); BOM: [`cn.chenxinjie:upload-file-bom:1.0.0`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file-bom) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> ✅ Status: **Stable** `1.0.0` (GA) — the API is frozen. See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the
-> [Changelog](CHANGELOG.md).
+> ✅ Status: **Stable** `1.0.0` (GA) — the API is frozen. All artifacts are published to **Maven Central**.
+> See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
 

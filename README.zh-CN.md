@@ -1,15 +1,17 @@
 # upload-file
 
+[![Maven Central](https://img.shields.io/maven-central/v/cn.chenxinjie/upload-file?label=Maven%20Central)](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file)
+
 大文件**分片上传 / 断点续传 / Range 断点下载**的 Maven 工具包，纯 Java 编写，兼容 JDK 8 及以上。
 
 | | |
 | --- | --- |
-| 坐标 | `cn.chenxinjie:upload-file:1.0.0`（父 POM / 聚合器）；BOM：`cn.chenxinjie:upload-file-bom:1.0.0` |
+| 坐标 | [`cn.chenxinjie:upload-file:1.0.0`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file)（父 POM / 聚合器）；BOM：[`cn.chenxinjie:upload-file-bom:1.0.0`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file-bom) |
 | 最低运行环境 | JDK 8 |
 | 运行依赖 | 仅 Gson（核心模块） |
 | 模块 | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> ✅ 状态：**Stable** `1.0.0`（GA）— **API 已冻结**。
+> ✅ 状态：**Stable** `1.0.0`（GA）— **API 已冻结**，全部构件已发布至 **Maven Central**。
 > 范围与兼容承诺见 [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)与[更新日志](CHANGELOG.zh-CN.md)。
 
 > 🇺🇸 [English](README.md)

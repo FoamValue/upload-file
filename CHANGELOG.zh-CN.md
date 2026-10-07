@@ -24,8 +24,10 @@
 
 ### 变更
 
-- **版本**：全模块 `1.0.0-rc.9 → 1.0.0`（含 `upload-file-bom` 与三个 demo）；本地 `.m2`
-  已 `mvn install` 同步到 1.0.0。
+- **版本**：全模块 `1.0.0-rc.9 → 1.0.0`（含 `upload-file-bom` 与三个 demo）。
+- **发布至 Maven Central**：全部 `cn.chenxinjie:*` 构件（`upload-file-core`、两个 servlet 与
+  starter 变体、`upload-file-store-jdbc`、`upload-file-store-redis` 以及 `upload-file-bom`）
+  现可从 Maven Central 直接获取——不再需要自定义仓库或本地 `mvn install`。
 
 ### 文档
 

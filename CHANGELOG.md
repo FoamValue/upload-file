@@ -27,8 +27,11 @@ and aborts mid-stream when the limit is exceeded.
 
 ### Changed
 
-- **Version**: all modules `1.0.0-rc.9 → 1.0.0` (including `upload-file-bom` and the three demos);
-  local `.m2` synced via `mvn install`.
+- **Version**: all modules `1.0.0-rc.9 → 1.0.0` (including `upload-file-bom` and the three demos).
+- **Published to Maven Central**: all `cn.chenxinjie:*` artifacts (`upload-file-core`, both servlet
+  and starter variants, `upload-file-store-jdbc`, `upload-file-store-redis`, and the
+  `upload-file-bom`) are now available from Maven Central — no custom repository or local
+  `mvn install` needed anymore.
 
 ### Docs
 
