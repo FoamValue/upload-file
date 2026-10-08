@@ -1,6 +1,7 @@
 # upload-file
 
 [![Maven Central](https://img.shields.io/maven-central/v/cn.chenxinjie/upload-file?label=Maven%20Central)](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file)
+[![CI](https://github.com/FoamValue/upload-file/actions/workflows/build.yml/badge.svg)](https://github.com/FoamValue/upload-file/actions/workflows/build.yml)
 
 大文件**分片上传 / 断点续传 / Range 断点下载**的 Maven 工具包，纯 Java 编写，兼容 JDK 8 及以上。
 
