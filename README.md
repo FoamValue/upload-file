@@ -1,6 +1,7 @@
 # upload-file
 
 [![Maven Central](https://img.shields.io/maven-central/v/cn.chenxinjie/upload-file?label=Maven%20Central)](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file)
+[![CI](https://github.com/FoamValue/upload-file/actions/workflows/build.yml/badge.svg)](https://github.com/FoamValue/upload-file/actions/workflows/build.yml)
 
 Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / HTTP `Range` resumable download**. Pure Java, compatible with JDK 8 and above.
 
