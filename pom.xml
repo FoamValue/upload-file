@@ -72,7 +72,7 @@
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
         <spring.boot.version>2.7.18</spring.boot.version>
         <spring.boot4.version>4.1.1</spring.boot4.version>
-        <jedis.version>4.4.0</jedis.version>
+        <jedis.version>8.0.1</jedis.version>
         <h2.version>2.2.224</h2.version>
 
         <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
