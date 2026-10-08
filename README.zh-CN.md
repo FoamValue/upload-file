@@ -526,6 +526,7 @@ mvn -pl example/upload-file-servlet-demo jetty:run
 - [未来优化方向](docs/ROADMAP.zh-CN.md)
 - [HTTP API 参考](docs/API.zh-CN.md)
 - [V1.0.0 SOW / API 冻结声明](docs/PLAN-V1.0.0.zh-CN.md)
+- [贡献指南](CONTRIBUTING.zh-CN.md)
 - [更新日志](CHANGELOG.zh-CN.md)
 
 ## 许可证

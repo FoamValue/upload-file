@@ -554,6 +554,7 @@ directly with the `storage-dir` / `metadata-dir` init-params declared in `web.xm
 - [Future Optimization Directions](docs/ROADMAP.md)
 - [HTTP API reference](docs/API.md)
 - [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md)
+- [Contributing Guide](CONTRIBUTING.md)
 - [Changelog](CHANGELOG.md)
 
 ## License
