@@ -2,6 +2,13 @@
 
 > 🇨🇳 [中文](SECURITY.zh-CN.md)
 
+## Supported Versions
+
+| Version | Supported |
+| --- | --- |
+| `1.0.x` | ✅ Supported (GA — security fixes on the frozen API) |
+| `< 1.0.0` (rc.*) | ❌ Unsupported (release candidates, superseded) |
+
 ## Reporting a Vulnerability
 
 **Preferred channel: a public GitHub issue.** Open an issue at
@@ -35,15 +42,8 @@ patch timeline. The usual flow is:
 1. **Acknowledge** — the report is confirmed on the issue (label and/or reply).
 2. **Triage & reproduce** — severity is assessed and the impact confirmed.
 3. **Fix & test** — the fix is implemented with a regression test.
-4. **Release** — the fix ships with the next applicable version of the current GA line (`1.0.0.x`).
+4. **Release** — the fix ships with the next applicable version of the current GA line (`1.0.x`).
 5. **Credit** — the fix is credited in the changelog unless you prefer to stay anonymous.
-
-## Supported versions
-
-| Version | Supported |
-| --- | --- |
-| `1.0.0.x` (current GA) | ✅ security fixes |
-| `1.0.0-rc.*` | ❌ pre-release — migrate to `1.0.0` |
 
 ## Disclosure
 
