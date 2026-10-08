@@ -70,7 +70,7 @@
         <gson.version>2.10.1</gson.version>
         <junit.version>4.13.2</junit.version>
         <javax.servlet-api.version>4.0.1</javax.servlet-api.version>
-        <spring.boot.version>2.7.18</spring.boot.version>
+        <spring.boot.version>4.1.1</spring.boot.version>
         <spring.boot4.version>4.1.1</spring.boot4.version>
         <jedis.version>4.4.0</jedis.version>
         <h2.version>2.2.224</h2.version>
