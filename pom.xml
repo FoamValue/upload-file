@@ -75,7 +75,7 @@
         <jedis.version>4.4.0</jedis.version>
         <h2.version>2.2.224</h2.version>
 
-        <maven-compiler-plugin.version>3.11.0</maven-compiler-plugin.version>
+        <maven-compiler-plugin.version>3.16.0</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.2.5</maven-surefire-plugin.version>
         <maven-enforcer-plugin.version>3.4.1</maven-enforcer-plugin.version>
         <maven-source-plugin.version>3.3.0</maven-source-plugin.version>
