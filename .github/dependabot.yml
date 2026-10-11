@@ -1,5 +1,6 @@
 version: 2
 updates:
+  # ───── Maven ─────
   - package-ecosystem: "maven"
     directory: "/"
     schedule:
@@ -9,6 +10,38 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "build"
+
+    # 只允许更新生产依赖的 minor/patch 版本
+    allow:
+      - dependency-type: "production"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+
+    # 按 semver 级别设置冷却期，防止供应链投毒
+    cooldown:
+      default-days: 3
+      semver-major-days: 14
+      semver-minor-days: 5
+      semver-patch-days: 1
+      exclude:
+        - "org.springframework.boot:*"
+        - "com.h2database:h2"
+
+    # 分组更新，减少 PR 数量
+    groups:
+      spring-boot:
+        patterns:
+          - "org.springframework.boot:*"
+          - "org.springframework:*"
+        exclude-patterns:
+          - "org.springframework.boot:spring-boot-starter-test"
+      test-deps:
+        dependency-type: "development"
+        patterns:
+          - "*"
+
+  # ───── GitHub Actions ─────
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -18,3 +51,11 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "build"
+
+    cooldown:
+      default-days: 3
+
+    groups:
+      all-actions:
+        patterns:
+          - "*"
