@@ -87,7 +87,7 @@
         <!-- rc.8 release engineering: binary-compatibility gate + SBOM (activated by profiles). -->
         <revapi-maven-plugin.version>0.15.1</revapi-maven-plugin.version>
         <revapi-java.version>0.28.4</revapi-java.version>
-        <cyclonedx-maven-plugin.version>2.9.1</cyclonedx-maven-plugin.version>
+        <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
         <!-- The rc.7 baseline the binary-compatibility gate compares against. -->
         <compat.baseline.version>1.0.0-rc.7</compat.baseline.version>
     </properties>
