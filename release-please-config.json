@@ -3,9 +3,11 @@
   "release-type": "maven",
   "include-component-in-tag": false,
   "tag-prefix": "",
+  "snapshot": false,
   "packages": {
     ".": {
       "package-name": "upload-file",
+      "snapshot": false,
       "extra-files": [
         { "type": "pom", "path": "upload-file-core/pom.xml" },
         { "type": "pom", "path": "upload-file-servlet/pom.xml" },
