@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ main ]
 
+# Build/test/gates only — no GitHub API writes. Explicit least-privilege grant
+# so this workflow stays read-only even if repo-wide defaults change.
+permissions:
+  contents: read
+
 jobs:
   build:
     name: Build & test (JDK ${{ matrix.java }})
