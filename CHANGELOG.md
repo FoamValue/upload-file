@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.2](https://github.com/FoamValue/upload-file/compare/1.0.1...v1.0.2) (2026-10-13)
+
+
+### Bug Fixes
+
+* **release:** disable maven SNAPSHOT mode in release-please config ([#22](https://github.com/FoamValue/upload-file/issues/22)) ([d990f6e](https://github.com/FoamValue/upload-file/commit/d990f6ec1efd76ad735babb9b5316b07253e272b))
+* **release:** rename config key to kebab-case skip-snapshot ([#28](https://github.com/FoamValue/upload-file/issues/28)) ([f5f03e2](https://github.com/FoamValue/upload-file/commit/f5f03e241b6e317f2d5f610fba98912a0977e311))
+* **release:** use skipSnapshot config key and sync README to 1.0.1 ([#24](https://github.com/FoamValue/upload-file/issues/24)) ([cf2d08c](https://github.com/FoamValue/upload-file/commit/cf2d08c7e3b32f6c541d56f9db6f8f34a0a49fed))
+
 ## [1.0.1] - 2026-10-13
 
 **Dependency maintenance release.** Batch of dependency upgrades merged by Dependabot after the
