@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "maven",
+  "include-component-in-tag": false,
+  "tag-prefix": "",
+  "packages": {
+    ".": {
+      "package-name": "upload-file",
+      "extra-files": [
+        { "type": "pom", "path": "upload-file-core/pom.xml" },
+        { "type": "pom", "path": "upload-file-servlet/pom.xml" },
+        { "type": "pom", "path": "upload-file-servlet-jakarta/pom.xml" },
+        { "type": "pom", "path": "upload-file-store-jdbc/pom.xml" },
+        { "type": "pom", "path": "upload-file-store-redis/pom.xml" },
+        { "type": "pom", "path": "upload-file-spring-boot-starter/pom.xml" },
+        { "type": "pom", "path": "upload-file-spring-boot-starter-jakarta/pom.xml" },
+        { "type": "pom", "path": "upload-file-bom/pom.xml" },
+        { "type": "pom", "path": "example/upload-file-demo/pom.xml" },
+        { "type": "pom", "path": "example/upload-file-boot4-demo/pom.xml" },
+        { "type": "pom", "path": "example/upload-file-servlet-demo/pom.xml" }
+      ],
+      "pull-request-footer": "> ⚠️ 合并本 PR 前：\n> 1. 将根 `pom.xml` 的 `compat.baseline.version` 更新为上一个发布版本（Revapi 门禁基线）；\n> 2. 将 `CHANGELOG.zh-CN.md` 同步本条发版说明（release-please 仅自动维护英文版 CHANGELOG.md）。"
+    }
+  }
+}
