@@ -1,0 +1,28 @@
+name: PR completeness check
+
+# Guards against docs being left behind by PRs:
+# - bilingual docs (README / CHANGELOG / SECURITY / docs/*) get a sync
+#   reminder when one language side is updated without the other
+#   (non-blocking, so new contributors are not scared off)
+# - release PRs ("chore(main): release x.y.z") get hard checks on the
+#   manual steps from the release-please footer checklist:
+#   README version references, CHANGELOG.zh-CN entry, revapi baseline
+#   (blocking — configured as a required status check on main)
+on:
+  pull_request:
+    types: [ opened, synchronize, reopened ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  completeness:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run completeness checks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.number }}
+        run: bash .github/scripts/pr-completeness.sh
