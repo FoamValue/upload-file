@@ -368,6 +368,13 @@ upload-file-store-jdbc,upload-file-store-redis
         "code": "java.method.varargOverloadsOnlyDifferInVarargParameter",
         "justification": "Reported inside third-party dependencies (e.g. Jedis) reachable from our API; it is their pre-existing API smell, not a change of ours.",
         "ignore": true
+      },
+      {
+        "code": "java\\.(method\\.returnTypeTypeParametersChanged|method\\.returnTypeChanged|method\\.finalMethodAddedToNonFinalClass|method\\.visibilityIncreased|class\\.defaultSerializationChanged|class\\.externalClassExposedInAPI)",
+        "regex": true,
+        "newArchive": "redis\\.clients:jedis:jar:.*",
+        "justification": "Transitive API changes inside the Jedis dependency upgrade itself (4.4.0 -> 4.4.8: Stream method generic widening, new Search classes, serialization IDs, added final methods, visibility relaxation). Our modules only use Jedis/JedisPool/JedisPoolConfig/Protocol and never call the changed APIs; behavior is covered by the test suite.",
+        "ignore": true
       }
       ]
     }
