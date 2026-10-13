@@ -3,7 +3,7 @@
   "release-type": "maven",
   "include-component-in-tag": false,
   "tag-prefix": "",
-  "skipSnapshot": true,
+  "skip-snapshot": true,
   "packages": {
     ".": {
       "package-name": "upload-file",
