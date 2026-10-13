@@ -7,6 +7,32 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.1] - 2026-10-13
+
+**依赖维护版本。** `1.0.0` GA 之后由 Dependabot 批量合并的依赖升级，外加社区治理完善。
+库自身公共 API 无任何变化——二进制兼容门禁的对比基线已对齐到已发布的 `1.0.0`。
+
+### 依赖变更
+
+- `com.h2database:h2` 2.2.224 → 2.5.252 (#13)
+- `com.google.code.gson:gson` 2.10.1 → 2.14.0 (#18)
+- `redis.clients:jedis` 4.4.0 → 4.4.8 (#17)——Jedis 库内部的传递性 API 变化已在 revapi 门禁中
+  按作用域排除；本项目模块从未调用受影响的 Stream/Search API
+- `org.apache.maven.plugins:maven-compiler-plugin` 3.11.0 → 3.16.0 (#14)
+- `org.codehaus.mojo:flatten-maven-plugin` 1.6.0 → 1.8.0 (#12)
+- `org.apache.maven.plugins:maven-enforcer-plugin` 3.4.1 → 3.6.3 (#9)
+- `org.cyclonedx:cyclonedx-maven-plugin` 2.9.1 → 2.9.3 (#11)
+- `org.apache.maven.plugins:maven-source-plugin` 3.3.0 → 3.4.0 (#7)
+- `org.apache.maven.plugins:maven-gpg-plugin` 3.2.4 → 3.2.8 (#4)
+- `org.apache.maven.plugins:maven-javadoc-plugin` 3.6.3 → 3.12.0 (#8)
+- `actions/checkout` 4 → 7 (#3)、`actions/setup-java` 4 → 6 (#5)
+
+### 治理
+
+- Dependabot 配置强化：新增 `allow`/冷却期/分组，仅对生产依赖的 minor/patch 更新开 PR (#16)
+- 安全政策：新增受支持版本章节 (#15)
+- 新增 Issue/PR 模板 (#1) 及社区治理文件——Dependabot、行为准则、SUPPORT、CI 徽章 (#2)
+
 ## [1.0.0] - 2026-10-02
 
 **首个稳定 GA 版本。** 与 `1.0.0-rc.9` 功能一致，仅多一项二进制兼容修复：

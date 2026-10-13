@@ -7,6 +7,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.1] - 2026-10-13
+
+**Dependency maintenance release.** Batch of dependency upgrades merged by Dependabot after the
+`1.0.0` GA, plus community-governance improvements. No changes to the library's own public API —
+the binary-compatibility gate now compares against the published `1.0.0` baseline.
+
+### Changed (Dependencies)
+
+- `com.h2database:h2` 2.2.224 → 2.5.252 (#13)
+- `com.google.code.gson:gson` 2.10.1 → 2.14.0 (#18)
+- `redis.clients:jedis` 4.4.0 → 4.4.8 (#17) — transitive API changes inside Jedis itself are
+  scoped out of the revapi gate; our modules never call the affected Stream/Search APIs
+- `org.apache.maven.plugins:maven-compiler-plugin` 3.11.0 → 3.16.0 (#14)
+- `org.codehaus.mojo:flatten-maven-plugin` 1.6.0 → 1.8.0 (#12)
+- `org.apache.maven.plugins:maven-enforcer-plugin` 3.4.1 → 3.6.3 (#9)
+- `org.cyclonedx:cyclonedx-maven-plugin` 2.9.1 → 2.9.3 (#11)
+- `org.apache.maven.plugins:maven-source-plugin` 3.3.0 → 3.4.0 (#7)
+- `org.apache.maven.plugins:maven-gpg-plugin` 3.2.4 → 3.2.8 (#4)
+- `org.apache.maven.plugins:maven-javadoc-plugin` 3.6.3 → 3.12.0 (#8)
+- `actions/checkout` 4 → 7 (#3), `actions/setup-java` 4 → 6 (#5)
+
+### Governance
+
+- Dependabot config hardened with `allow`/cooldown/groups so only production minor/patch updates
+  open PRs (#16)
+- Security policy: added the supported-versions section (#15)
+- Added Issue/PR templates (#1) and community-governance files — Dependabot, Code of Conduct,
+  SUPPORT, CI badges (#2)
+
 ## [1.0.0] - 2026-10-02
 
 **First stable GA release.** Same feature set as `1.0.0-rc.9` plus one binary-compatibility fix:
