@@ -3,11 +3,10 @@
   "release-type": "maven",
   "include-component-in-tag": false,
   "tag-prefix": "",
-  "snapshot": false,
+  "skipSnapshot": true,
   "packages": {
     ".": {
       "package-name": "upload-file",
-      "snapshot": false,
       "extra-files": [
         { "type": "pom", "path": "upload-file-core/pom.xml" },
         { "type": "pom", "path": "upload-file-servlet/pom.xml" },
@@ -21,7 +20,7 @@
         { "type": "pom", "path": "example/upload-file-boot4-demo/pom.xml" },
         { "type": "pom", "path": "example/upload-file-servlet-demo/pom.xml" }
       ],
-      "pull-request-footer": "> ⚠️ 合并本 PR 前：\n> 1. 将根 `pom.xml` 的 `compat.baseline.version` 更新为上一个发布版本（Revapi 门禁基线）；\n> 2. 将 `CHANGELOG.zh-CN.md` 同步本条发版说明（release-please 仅自动维护英文版 CHANGELOG.md）。"
+      "pull-request-footer": "> ⚠️ 合并本 PR 前：\n> 1. 将根 `pom.xml` 的 `compat.baseline.version` 更新为上一个发布版本（Revapi 门禁基线）；\n> 2. 将 `CHANGELOG.zh-CN.md` 同步本条发版说明（release-please 仅自动维护英文版）；\n> 3. 将 `README.md` / `README.zh-CN.md` 中的版本引用（坐标表、状态行、依赖示例、jar 文件名）同步为新版本。"
     }
   }
 }
