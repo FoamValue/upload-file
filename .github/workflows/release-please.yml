@@ -1,0 +1,22 @@
+name: release-please
+
+# Maintains a persistent "release PR": every push to main (i.e. every merged PR,
+# including Dependabot bumps) accumulates its conventional commits into that PR.
+# Merging the release PR bumps the version, updates the CHANGELOG, tags the repo
+# and creates the GitHub Release — zero manual version bookkeeping.
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
