@@ -7,6 +7,16 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.2] - 2026-10-13
+
+**发版工具链修复版本。** 无代码与依赖变化，仅修正 release-please 自动发版配置，
+使发版 PR 不再携带 `-SNAPSHOT` 后缀：
+
+- 关闭 Maven SNAPSHOT 模式，release-please 不再生成 `1.0.x-SNAPSHOT` 发版 PR（#22）
+- 尝试 camelCase 配置键 `skipSnapshot`，并同步 README 版本引用至 1.0.1（#24）
+- 配置键最终修正为 kebab-case 的 `skip-snapshot`——release-please 源码只识别
+  kebab-case 键，camelCase 会被静默忽略（#28）
+
 ## [1.0.1] - 2026-10-13
 
 **依赖维护版本。** `1.0.0` GA 之后由 Dependabot 批量合并的依赖升级，外加社区治理完善。

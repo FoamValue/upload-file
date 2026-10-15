@@ -7,12 +7,12 @@ Maven toolkit for **large-file chunked upload / resumable (breakpoint) upload / 
 
 | | |
 | --- | --- |
-| Coordinates | [`cn.chenxinjie:upload-file:1.0.1`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file) (parent POM / aggregator); BOM: [`cn.chenxinjie:upload-file-bom:1.0.1`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file-bom) |
+| Coordinates | [`cn.chenxinjie:upload-file:1.0.2`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file) (parent POM / aggregator); BOM: [`cn.chenxinjie:upload-file-bom:1.0.2`](https://central.sonatype.com/artifact/cn.chenxinjie/upload-file-bom) |
 | Minimum runtime | JDK 8 |
 | Runtime dependency | Gson only (core module) |
 | Modules | `upload-file-core` · `upload-file-servlet` · `upload-file-servlet-jakarta` · `upload-file-spring-boot-starter` · `upload-file-spring-boot-starter-jakarta` · `upload-file-store-jdbc` · `upload-file-store-redis` · `upload-file-bom` · `example/upload-file-demo` · `example/upload-file-boot4-demo` · `example/upload-file-servlet-demo` |
 
-> ✅ Status: **Stable** `1.0.1` (GA) — the API is frozen. All artifacts are published to **Maven Central**.
+> ✅ Status: **Stable** `1.0.2` (GA) — the API is frozen. All artifacts are published to **Maven Central**.
 > See the [V1.0.0 SOW / API freeze](docs/PLAN-V1.0.0.md) and the [Changelog](CHANGELOG.md).
 
 > 🇨🇳 [简体中文](README.zh-CN.md)
@@ -81,7 +81,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
         <dependency>
             <groupId>cn.chenxinjie</groupId>
             <artifactId>upload-file-bom</artifactId>
-            <version>1.0.1</version>
+            <version>1.0.2</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -104,7 +104,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter-jakarta</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
 </dependency>
 ```
 
@@ -114,7 +114,7 @@ Import the BOM so module dependencies need no explicit version (no version drift
 <dependency>
     <groupId>cn.chenxinjie</groupId>
     <artifactId>upload-file-spring-boot-starter</artifactId>
-    <version>1.0.1</version>
+    <version>1.0.2</version>
 </dependency>
 ```
 
@@ -521,7 +521,7 @@ that boots the real app on a random port and verifies the static page and the co
 ```bash
 mvn -pl example/upload-file-demo spring-boot:run
 # or
-java -jar example/upload-file-demo/target/upload-file-demo-1.0.1.jar
+java -jar example/upload-file-demo/target/upload-file-demo-1.0.2.jar
 ```
 
 Open <http://localhost:8080/>, pick a file, and try chunked upload, pause/resume, merge, and resumable download.
