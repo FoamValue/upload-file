@@ -4,6 +4,7 @@
   "include-component-in-tag": false,
   "tag-prefix": "v",
   "skip-snapshot": true,
+  "versioning": "always-bump-patch",
   "packages": {
     ".": {
       "package-name": "upload-file",
