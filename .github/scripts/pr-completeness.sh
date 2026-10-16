@@ -81,6 +81,12 @@ if [[ "$TITLE" =~ chore\(main\):\ release\ ([0-9]+\.[0-9]+\.[0-9]+) ]]; then
     ERRORS+=("\`CHANGELOG.zh-CN.md\` is missing the \`## [$VERSION]\` entry (sync the English changelog).")
 
   if [ -n "$PREV" ]; then
+    # Version-bump guard: the release version must be exactly one patch
+    # increment above the previous published version (e.g. 1.0.2 -> 1.0.3).
+    EXPECTED=$(awk -F. '{printf "%d.%d.%d", $1, $2, $3+1}' <<< "$PREV")
+    [ "$VERSION" = "$EXPECTED" ] || \
+      ERRORS+=("Release version \`$VERSION\` is not one patch increment above the previously published version \`$PREV\` (expected \`$EXPECTED\`).")
+
     BASELINE=$(sed -n 's:.*<compat.baseline.version>\(.*\)</compat.baseline.version>.*:\1:p' pom.xml | head -1)
     [ "$BASELINE" = "$PREV" ] || \
       ERRORS+=("pom.xml \`compat.baseline.version\` is \`${BASELINE:-<missing>}\`, expected \`$PREV\` (previous published version).")
