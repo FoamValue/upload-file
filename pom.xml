@@ -87,7 +87,7 @@
         <revapi-java.version>0.28.4</revapi-java.version>
         <cyclonedx-maven-plugin.version>2.9.3</cyclonedx-maven-plugin.version>
         <!-- The baseline the binary-compatibility gate compares against (last published release). -->
-        <compat.baseline.version>1.0.1</compat.baseline.version>
+        <compat.baseline.version>1.0.2</compat.baseline.version>
     </properties>
 
     <dependencyManagement>

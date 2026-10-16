@@ -7,6 +7,21 @@
 
 > 🇺🇸 [English](CHANGELOG.md)
 
+## [1.0.3] - 2026-10-16
+
+**CI 治理与发版工具链版本。** 无代码行为变化，库自身公共 API 不变——二进制兼容门禁的
+对比基线已对齐到已发布的 `1.0.2`：
+
+- 发版版本守卫：发版 PR 的版本号必须为上一发布版本 +0.0.1，由 completeness 检查
+  作为阻断项强制执行（#36）
+- release-please 配置 `versioning: always-bump-patch`：所有触发提交一律只递增 patch，
+  避免 `feat:` 提交把版本推到 minor，与版本守卫规则对齐（#37）
+- 修正 1.0.2 的 compare 链接指向 `v1.0.2` tag，并在配置中显式声明 `tag-prefix: "v"`（#33）
+- 依赖升级：`org.sonatype.central:central-publishing-maven-plugin` 0.11.0 → 0.12.0
+  （#31、#35）——修复 Maven 3.10 将簿记文件（`maven-metadata-local.xml` 等）写入发布
+  bundle、导致 Central Portal 以“缺 .pom”驳回部署的问题
+- 依赖升级：GitHub Actions 更新组（#32）
+
 ## [1.0.2] - 2026-10-13
 
 **发版工具链修复版本。** 无代码与依赖变化，仅修正 release-please 自动发版配置，
