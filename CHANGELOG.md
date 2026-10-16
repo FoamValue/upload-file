@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > 🇨🇳 [简体中文](CHANGELOG.zh-CN.md)
 
+## [1.0.3](https://github.com/FoamValue/upload-file/compare/v1.0.2...v1.0.3) (2026-10-16)
+
+
+### Features
+
+* **ci:** guard release PR version to one patch increment ([#36](https://github.com/FoamValue/upload-file/issues/36)) ([1729633](https://github.com/FoamValue/upload-file/commit/172963347682d22ce24d8e64565400a660ef036f))
+
+
+### Bug Fixes
+
+* **release:** point 1.0.2 compare link at v1.0.2 tag, make tag-prefix explicit ([#33](https://github.com/FoamValue/upload-file/issues/33)) ([2c77937](https://github.com/FoamValue/upload-file/commit/2c77937ece3737ec161162f63cd335fd7cb45088))
+
 ## [1.0.2](https://github.com/FoamValue/upload-file/compare/1.0.1...v1.0.2) (2026-10-13)
 
 
